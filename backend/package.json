@@ -7,6 +7,7 @@
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
+    "build:full": "cd ../frontend && npm install --legacy-peer-deps && npm run build && cp -r build ../backend/public",
     "start:prod": "node dist/index.js"
   },
   "keywords": [],

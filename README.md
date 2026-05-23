@@ -1,152 +1,85 @@
-# Marketing Agent - Rich Viber Campaign Generator
+# Marketing Agent
 
-An intelligent web application that generates personalized Rich Viber messages for marketing campaigns using Anthropic's Claude API.
+Generate and refine personalised Viber/SMS campaign messages using Claude AI.
 
-## Features
+## Quick start (local)
 
-- 📤 Upload SMS template and personas CSV/Excel files
-- 🤖 AI-powered personalization using Claude 3.5 Sonnet
-- 💬 Chat interface for message refinements
-- ✅ Approval workflow for campaign messages
-- 💾 Export approved messages for campaign usage
-
-## Tech Stack
-
-- **Frontend:** React + TypeScript + Tailwind CSS
-- **Backend:** Node.js + Express + TypeScript
-- **AI:** Anthropic Claude 3.5 Sonnet API
-- **File Processing:** Multer for file uploads
-- **Database:** Local JSON storage
-
-## Prerequisites
-
-- Node.js 18+
-- npm or yarn
-- Anthropic API key
-
-## Installation
-
-### Backend Setup
+**Requirements:** Node.js 18+, an [Anthropic API key](https://console.anthropic.com/settings/keys)
 
 ```bash
+# 1. Clone
+git clone https://github.com/msyllign/marketing-agent.git
+cd marketing-agent
+
+# 2. Start (builds frontend on first run, ~30 s)
+./start.sh --api-key sk-ant-YOUR_KEY_HERE
+
+# 3. Open  http://localhost:5000
+```
+
+Everything — the React UI and the Express API — is served from a **single port (5000)**.  
+No separate frontend dev server needed.
+
+---
+
+## Manual setup
+
+```bash
+# Install & build
 cd backend
 npm install
-```
+npm run build:full        # builds React → backend/public
 
-Create a `.env` file:
+# Configure
+echo 'PORT=5000'                           >  .env
+echo 'ANTHROPIC_API_KEY=sk-ant-...'        >> .env
+echo 'UPLOAD_DIR=./uploads'                >> .env
 
-```env
-ANTHROPIC_API_KEY=your_api_key_here
-PORT=5000
-NODE_ENV=development
-```
-
-### Frontend Setup
-
-```bash
-cd frontend
-npm install
-```
-
-Create a `.env` file:
-
-```env
-REACT_APP_API_URL=http://localhost:5000
-```
-
-## Running the Application
-
-### Start Backend
-
-```bash
-cd backend
-npm run dev
-```
-
-Backend runs on `http://localhost:5000`
-
-### Start Frontend
-
-```bash
-cd frontend
+# Run
 npm start
+# → http://localhost:5000
 ```
 
-Frontend runs on `http://localhost:3000`
+---
 
-## Project Structure
+## How it works
+
+| Step | What happens |
+|------|-------------|
+| **Upload** | Upload an SMS template (`.txt`) and a personas file (`.csv` / `.xlsx`) |
+| **Generate** | Claude reads each persona and personalises the template into a message |
+| **Refine** | Chat with Claude to tweak individual messages |
+| **Approve** | Mark messages as approved |
+| **Export** | Download approved messages as CSV |
+
+---
+
+## Project structure
 
 ```
 marketing-agent/
-├── backend/
+├── backend/               Express API (port 5000, also serves built UI)
 │   ├── src/
-│   │   ├── routes/
-│   │   │   ├── upload.ts
-│   │   │   ├── generate.ts
-│   │   │   ├── chat.ts
-│   │   │   └── approval.ts
-│   │   ├── services/
-│   │   │   ├── claudeService.ts
-│   │   │   ├── fileService.ts
-│   │   │   └── messageService.ts
-│   │   ├── types/
-│   │   │   └── index.ts
-│   │   ├── middleware/
-│   │   │   └── errorHandler.ts
-│   │   └── index.ts
-│   ├── uploads/
-│   ├── approved_messages/
-│   ├── .env
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── FileUpload.tsx
-│   │   │   ├── MessagePreview.tsx
-│   │   │   ├── ChatInterface.tsx
-│   │   │   ├── MessageCard.tsx
-│   │   │   └── ApprovalModal.tsx
-│   │   ├── pages/
-│   │   │   ├── Home.tsx
-│   │   │   └── Campaign.tsx
-│   │   ├── services/
-│   │   │   └── api.ts
-│   │   ├── types/
-│   │   │   └── index.ts
-│   │   ├── App.tsx
-│   │   ├── index.tsx
-│   │   └── index.css
-│   ├── public/
-│   ├── .env
-│   ├── package.json
-│   └── tsconfig.json
-└── .gitignore
+│   │   ├── index.ts       Entry point
+│   │   ├── routes/        upload · generate · chat · approval
+│   │   └── services/      claude.ts · fileParser.ts
+│   └── .env               API key (gitignored — never committed)
+├── frontend/              React + TypeScript + Tailwind source
+└── start.sh               One-command launcher
 ```
 
-## Usage
+---
 
-1. **Upload Files:** Upload your SMS template and personas CSV/Excel file
-2. **Generate Messages:** The system generates personalized Rich Viber messages for each persona
-3. **Refine:** Use the chat interface to request modifications to any message
-4. **Approve:** Mark messages as approved when satisfied
-5. **Export:** Download approved messages for your campaign
+## Sample files
 
-## API Endpoints
+**sms_template.txt**
+```
+Hey {name}! Our summer sale is on — up to 50% off. Shop at example.com/sale. Ends Sunday!
+```
 
-### Upload Files
-- `POST /api/upload` - Upload SMS template and personas file
-
-### Generate Messages
-- `POST /api/generate` - Generate personalized messages
-
-### Chat/Refinement
-- `POST /api/chat/refine` - Request message modifications
-
-### Approval
-- `POST /api/approval/approve` - Mark message as approved
-- `GET /api/approval/export` - Export approved messages
-
-## License
-
-MIT
+**personas.csv**
+```csv
+name,age,profession,interests
+Alice,32,Graphic Designer,art travel photography
+Bob,45,Software Engineer,gadgets gaming coffee
+```

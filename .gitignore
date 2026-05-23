@@ -28,10 +28,12 @@ yarn-error.log*
 *.swp
 *.swo
 
-# Uploads and exports
+# Backend generated / build artefacts
 backend/uploads/
 backend/approved_messages/
 backend/temp/
+backend/public/
+backend/dist/
 
 # OS
 Thumbs.db
