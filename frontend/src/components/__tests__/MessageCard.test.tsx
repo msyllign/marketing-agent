@@ -1,8 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { MessageCard } from '../components/MessageCard';
-import { GeneratedMessage } from '../types';
+import { MessageCard } from '../MessageCard';
+import { GeneratedMessage } from '../../types';
 
 describe('MessageCard Component', () => {
   const mockMessage: GeneratedMessage = {

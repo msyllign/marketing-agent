@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { ChatInterface } from '../components/ChatInterface';
-import * as api from '../services/api';
+import { ChatInterface } from '../ChatInterface';
+import * as api from '../../services/api';
 
-jest.mock('../services/api');
+jest.mock('../../services/api');
 jest.mock('react-hot-toast');
 
 describe('ChatInterface Component', () => {
