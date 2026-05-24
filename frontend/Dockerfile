@@ -11,5 +11,7 @@ FROM node:18-alpine
 WORKDIR /app
 RUN npm install -g serve
 COPY --from=builder /app/build ./build
+ENV PORT=3000
 EXPOSE 3000
-CMD ["serve", "-s", "build", "-l", "3000"]
+# Shell form so $PORT is expanded at runtime
+CMD serve -s build -l $PORT
