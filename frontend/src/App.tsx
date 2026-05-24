@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { MessageCard } from './components/MessageCard';
 import { ChatInterface } from './components/ChatInterface';
-import { generateMessages } from './services/api';
+import { generateMessages, approveMessage } from './services/api';
 import { GeneratedMessage } from './types';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -33,13 +33,48 @@ function App() {
     setRefinedMessage(null);
   };
 
-  const handleApproveMessage = (messageText: string) => {
+  const handleApproveMessage = async (messageText: string) => {
+    // Find the persona name for this message
+    const msg = messages.find((m) => m.message === messageText);
+    if (!msg || !campaignId) return;
+
+    // Update local state immediately
     setMessages((prev) =>
-      prev.map((msg) =>
-        msg.message === messageText ? { ...msg, approved: true } : msg
+      prev.map((m) =>
+        m.message === messageText ? { ...m, approved: true } : m
       )
     );
     toast.success('Message approved!');
+
+    // Sync approval to backend
+    try {
+      await approveMessage(campaignId, msg.personaName, messageText);
+    } catch {
+      // Non-blocking — local state is already updated
+    }
+  };
+
+  const handleExport = () => {
+    const approved = messages.filter((m) => m.approved);
+    if (approved.length === 0) return;
+
+    // Build a clean export object
+    const exportData = approved.map((m) => ({
+      persona: m.personaName,
+      message: m.message,
+    }));
+
+    // Trigger JSON download
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `approved-messages-${campaignId?.slice(0, 8) ?? 'campaign'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Downloaded ${approved.length} approved messages`);
   };
 
   const approvedCount = messages.filter((m) => m.approved).length;
@@ -61,9 +96,19 @@ function App() {
             {/* Messages List */}
             <div className="lg:col-span-2">
               <div className="bg-white p-6 rounded-lg shadow-md mb-4">
-                <h2 className="text-2xl font-bold mb-4">
-                  Generated Messages ({approvedCount}/{messages.length} approved)
-                </h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-2xl font-bold">
+                    Generated Messages ({approvedCount}/{messages.length} approved)
+                  </h2>
+                  {approvedCount > 0 && (
+                    <button
+                      onClick={handleExport}
+                      className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2"
+                    >
+                      ⬇️ Export ({approvedCount})
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-4 max-h-96 overflow-y-auto">
                   {loading ? (
                     <div className="text-center py-8">
