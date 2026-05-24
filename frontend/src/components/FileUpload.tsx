@@ -35,10 +35,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
 
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium mb-2">SMS Template (TXT)</label>
+          <label className="block text-sm font-medium mb-2">SMS / Viber Template (TXT or DOCX)</label>
           <input
             type="file"
-            accept=".txt"
+            accept=".txt,.docx"
             onChange={(e) => setSmsTemplate(e.target.files?.[0] || null)}
             className="w-full border rounded px-3 py-2"
           />

@@ -28,10 +28,13 @@ yarn-error.log*
 *.swp
 *.swo
 
-# Uploads and exports
+# Uploads and exports (runtime-generated, not committed)
 backend/uploads/
 backend/approved_messages/
 backend/temp/
+
+# Test fixtures with actual campaign files are kept in git
+# backend/test-fixtures/  <-- intentionally tracked
 
 # OS
 Thumbs.db
