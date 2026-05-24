@@ -1,17 +1,15 @@
-# ---- Build stage ----
-FROM node:18-alpine AS builder
+FROM node:18-alpine
 WORKDIR /app
+
+# Install deps
 COPY package.json .npmrc ./
 RUN npm install --legacy-peer-deps
+
+# Build React app
 COPY . .
 RUN npm run build
 
-# ---- Production stage ----
-FROM node:18-alpine
-WORKDIR /app
-RUN npm install -g serve
-COPY --from=builder /app/build ./build
+# Serve static build
 ENV PORT=3000
 EXPOSE 3000
-# Shell form so $PORT is expanded at runtime
-CMD serve -s build -l $PORT
+CMD npx serve -s build -l $PORT
