@@ -11,9 +11,10 @@ import { buildFeedbackContext } from './feedbackStore';
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
-// Agentic loop settings
-const SCORE_THRESHOLD = 6;   // exit loop once score ≥ 6
-const MAX_ITERATIONS = 2;    // at most 2 attempts per persona
+// Agentic loop settings — exit when BOTH quality and compliance reach threshold
+const SCORE_THRESHOLD = 6;       // overall quality threshold
+const COMPLIANCE_THRESHOLD = 6;  // compliance score threshold
+const MAX_ITERATIONS = 2;        // at most 2 attempts per persona
 
 // ── Prompt builders ──────────────────────────────────────────────────────────
 
@@ -163,7 +164,14 @@ export async function generateWithCriticLoop(
 }> {
   const feedbackContext = buildFeedbackContext(persona.name);
   let currentDraft = '';
-  let currentScore: CriticScore = { score: 0, strengths: [], improvements: [] };
+  let currentScore: CriticScore = {
+    score: 0,
+    complianceScore: 0,
+    approvalProbability: 0,
+    strengths: [],
+    complianceViolations: [],
+    improvements: [],
+  };
   let iterationsUsed = 0;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -179,11 +187,15 @@ export async function generateWithCriticLoop(
       product,
       feedbackContext,
       i > 0 ? currentDraft : undefined,
-      i > 0 ? currentScore.improvements : undefined
+      // Pass both compliance violations AND quality improvements to refinement prompt
+      i > 0
+        ? [...(currentScore.complianceViolations ?? []), ...(currentScore.improvements ?? [])]
+        : undefined
     );
 
     currentScore = await scoreDraft(
       currentDraft,
+      smsTemplate,       // reference template for compliance check
       persona,
       aiTrainingPack,
       segment,
@@ -191,10 +203,16 @@ export async function generateWithCriticLoop(
     );
 
     console.log(
-      `[Agent] ${persona.name} — score ${currentScore.score}/10 (threshold ${SCORE_THRESHOLD})`
+      `[Agent] ${persona.name} — quality ${currentScore.score}/10  ` +
+      `compliance ${currentScore.complianceScore}/10  ` +
+      `approval ${currentScore.approvalProbability}%`
     );
 
-    if (currentScore.score >= SCORE_THRESHOLD) break;
+    // Exit loop when BOTH thresholds are met
+    if (
+      currentScore.score >= SCORE_THRESHOLD &&
+      currentScore.complianceScore >= COMPLIANCE_THRESHOLD
+    ) break;
   }
 
   return { message: currentDraft, criticScore: currentScore, refinementIterations: iterationsUsed };

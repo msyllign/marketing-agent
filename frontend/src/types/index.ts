@@ -4,8 +4,11 @@ export interface Persona {
 }
 
 export interface CriticScore {
-  score: number;        // 1–10
+  score: number;                  // 1–10  overall message quality
+  complianceScore: number;        // 1–10  compliance with AI Training Pack
+  approvalProbability: number;    // 0–100 estimated % chance compliance unit approves
   strengths: string[];
+  complianceViolations: string[]; // specific guideline violations
   improvements: string[];
 }
 

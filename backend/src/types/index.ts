@@ -46,9 +46,12 @@ export interface CampaignData {
 // ── Critic / Feedback types ──────────────────────────────────────────────────
 
 export interface CriticScore {
-  score: number;        // 1–10
-  strengths: string[];
-  improvements: string[];
+  score: number;                  // 1–10  overall message quality (used for loop threshold)
+  complianceScore: number;        // 1–10  how strictly it follows AI Training Pack guidelines
+  approvalProbability: number;    // 0–100 estimated % chance compliance unit approves it
+  strengths: string[];            // what works well
+  complianceViolations: string[]; // specific guideline violations
+  improvements: string[];         // what to fix (quality + compliance combined)
 }
 
 export type FeedbackRecordType = 'approved' | 'rejected' | 'user_refinement';
