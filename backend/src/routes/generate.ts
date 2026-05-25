@@ -1,13 +1,40 @@
 import { Router } from 'express';
 import * as path from 'path';
+import * as crypto from 'crypto';
+import * as fs from 'fs';
 import { parseSmsTemplate, parsePersonasFile } from '../services/fileService';
 import { generateWithCriticLoop } from '../services/claudeService';
-import { saveCampaign } from '../services/messageService';
+import { saveCampaign, findMessagesByCacheKey } from '../services/messageService';
+import { createJob, addJobMessage, completeJob, failJob } from '../services/jobStore';
 import type { GeneratedMessage } from '../types';
 
 const router = Router();
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
-const CONCURRENCY = 1; // sequential — keeps request time predictable
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** SHA-256 hash (first 16 hex chars) of a file's content. */
+function hashFile(filePath: string): string {
+  const buf = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+}
+
+/**
+ * Stable cache key for a generation request.
+ * Changes whenever the segment, product, or either uploaded file changes.
+ */
+function buildCacheKey(
+  segment: string,
+  product: string,
+  personasPath: string,
+  smsPath: string
+): string {
+  const ph = hashFile(personasPath);
+  const sh = hashFile(smsPath);
+  return `${segment}__${product}__${ph}__${sh}`;
+}
+
+// ── Route ────────────────────────────────────────────────────────────────────
 
 router.post('/', async (req, res, next) => {
   try {
@@ -26,24 +53,16 @@ router.post('/', async (req, res, next) => {
     };
 
     if (!campaignId || !smsTemplateFile || !personasFile) {
-      res.status(400).json({
-        error: 'campaignId, smsTemplateFile, and personasFile are required',
-      });
+      res.status(400).json({ error: 'campaignId, smsTemplateFile, and personasFile are required' });
       return;
     }
-
     if (!segment || !product) {
-      res.status(400).json({
-        error: 'segment and product must be selected before generating',
-      });
+      res.status(400).json({ error: 'segment and product must be selected before generating' });
       return;
     }
-
     if (!process.env.ANTHROPIC_API_KEY) {
       res.status(500).json({
-        error:
-          'ANTHROPIC_API_KEY is not configured on the server. ' +
-          'Add it as an environment variable in Railway.',
+        error: 'ANTHROPIC_API_KEY is not configured on the server. Add it as an environment variable in Railway.',
       });
       return;
     }
@@ -51,6 +70,19 @@ router.post('/', async (req, res, next) => {
     const smsPath = path.join(UPLOADS_DIR, smsTemplateFile);
     const personasPath = path.join(UPLOADS_DIR, personasFile);
 
+    // ── Build campaign cache key ─────────────────────────────────────────────
+    const cacheKey = buildCacheKey(segment, product, personasPath, smsPath);
+    console.log(`[Generate] Cache key: ${cacheKey}`);
+
+    // ── Check for previously approved messages ───────────────────────────────
+    const cached = findMessagesByCacheKey(cacheKey);
+    if (cached.length > 0) {
+      console.log(`[Generate] Returning ${cached.length} cached approved messages`);
+      res.json({ cached: true, messages: cached, count: cached.length });
+      return;
+    }
+
+    // ── Parse files ──────────────────────────────────────────────────────────
     const smsTemplate = await parseSmsTemplate(smsPath);
     const { personas, aiTrainingPack, products, campaignOffer, sheetNames } =
       parsePersonasFile(personasPath);
@@ -71,12 +103,18 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
-    const messages: GeneratedMessage[] = [];
+    // ── Create job and respond immediately (avoids Railway 60s timeout) ──────
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    createJob(jobId, personas.length);
 
-    for (let i = 0; i < personas.length; i += CONCURRENCY) {
-      const batch = personas.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        batch.map(async (persona) => {
+    res.json({ jobId, count: personas.length });
+
+    // ── Run generation asynchronously ────────────────────────────────────────
+    const allMessages: GeneratedMessage[] = [];
+
+    (async () => {
+      for (const persona of personas) {
+        try {
           const { message, criticScore, refinementIterations } =
             await generateWithCriticLoop(
               smsTemplate,
@@ -90,10 +128,11 @@ router.post('/', async (req, res, next) => {
 
           console.log(
             `[Generate] ✓ ${persona.name} — ` +
-            `score ${criticScore.score}/10, ${refinementIterations} iteration(s)`
+            `quality ${criticScore.score}/10  compliance ${criticScore.complianceScore}/10  ` +
+            `${refinementIterations} iteration(s)`
           );
 
-          return {
+          const msg: GeneratedMessage = {
             personaName: persona.name,
             persona,
             message,
@@ -102,26 +141,49 @@ router.post('/', async (req, res, next) => {
             product,
             criticScore,
             refinementIterations,
-          } as GeneratedMessage;
-        })
-      );
-      messages.push(...batchResults);
-    }
+          };
 
-    saveCampaign({
-      id: campaignId,
-      smsTemplate,
-      segment,
-      product,
-      personas,
-      brief: { title: `${product} – ${segment}`, product },
-      aiTrainingPack,
-      products,
-      messages,
-      createdAt: new Date().toISOString(),
+          allMessages.push(msg);
+          addJobMessage(jobId, msg);
+
+        } catch (err) {
+          console.error(`[Generate] ✗ ${persona.name} —`, err);
+          // Add a placeholder so the persona shows up in the UI with an error note
+          const errMsg: GeneratedMessage = {
+            personaName: persona.name,
+            persona,
+            message: `[Generation failed: ${err instanceof Error ? err.message : String(err)}]`,
+            approved: false,
+            segment,
+            product,
+          };
+          allMessages.push(errMsg);
+          addJobMessage(jobId, errMsg);
+        }
+      }
+
+      completeJob(jobId);
+
+      // Persist the full campaign result
+      saveCampaign({
+        id: campaignId,
+        cacheKey,
+        smsTemplate,
+        segment,
+        product,
+        personas,
+        brief: { title: `${product} – ${segment}`, product },
+        aiTrainingPack,
+        products,
+        messages: allMessages,
+        createdAt: new Date().toISOString(),
+      });
+
+    })().catch((err) => {
+      console.error('[Generate] Fatal job error:', err);
+      failJob(jobId, err instanceof Error ? err.message : String(err));
     });
 
-    res.json({ campaignId, messages, count: messages.length });
   } catch (err) {
     next(err);
   }

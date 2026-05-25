@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import uploadRouter from './routes/upload';
 import generateRouter from './routes/generate';
+import jobsRouter from './routes/jobs';
 import chatRouter from './routes/chat';
 import approvalRouter from './routes/approval';
 import feedbackRouter from './routes/feedback';
@@ -23,6 +24,7 @@ app.get('/api/health', (_req, res) => {
 // Routes
 app.use('/api/upload', uploadRouter);
 app.use('/api/generate', generateRouter);
+app.use('/api/jobs', jobsRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/approval', approvalRouter);
 app.use('/api/feedback', feedbackRouter);

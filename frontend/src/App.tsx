@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { MessageCard } from './components/MessageCard';
 import { ChatInterface } from './components/ChatInterface';
 import axios from 'axios';
-import { generateMessages, approveMessage, rejectMessage } from './services/api';
+import { startGeneration, pollJob, approveMessage, rejectMessage } from './services/api';
 import { GeneratedMessage, CriticScore } from './types';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -18,6 +18,7 @@ type AppPhase = 'upload' | 'ready' | 'generating' | 'done';
 
 const SEGMENTS = ['Premium', 'Mass', 'Business'] as const;
 const PRODUCTS = ['Credit Cards', 'Mutual Funds', 'Safe Wallet'] as const;
+const POLL_INTERVAL_MS = 3_000;
 
 function App() {
   const [phase, setPhase] = useState<AppPhase>('upload');
@@ -27,6 +28,48 @@ function App() {
   const [messages, setMessages] = useState<GeneratedMessage[]>([]);
   const [selectedMessage, setSelectedMessage] = useState<GeneratedMessage | null>(null);
   const [refinedMessage, setRefinedMessage] = useState<string | null>(null);
+
+  // Job polling state
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState<{ completed: number; total: number }>({
+    completed: 0,
+    total: 0,
+  });
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Cleanup poll on unmount ─────────────────────────────────────────────────
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  // ── Polling loop ───────────────────────────────────────────────────────────
+  function startPolling(id: string, total: number) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    setJobProgress({ completed: 0, total });
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const job = await pollJob(id);
+        setJobProgress({ completed: job.completedCount, total: job.totalCount });
+
+        if (job.status === 'done') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setMessages(job.messages);
+          setPhase('done');
+          toast.success(`Generated ${job.messages.length} messages!`);
+        } else if (job.status === 'error') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          toast.error(job.error ?? 'Generation failed', { duration: 10_000 });
+          setPhase('ready');
+        }
+      } catch (err) {
+        // Network hiccup — keep polling
+        console.warn('[Poll] temporary error', err);
+      }
+    }, POLL_INTERVAL_MS);
+  }
 
   // ── Step 1: Upload ──────────────────────────────────────────────────────────
   const handleUploadSuccess = (id: string, smsFile: string, personasFile: string) => {
@@ -39,28 +82,43 @@ function App() {
   const handleGenerate = async () => {
     if (!uploadedFiles || !segment || !product) return;
     setPhase('generating');
+    setMessages([]);
+    setJobId(null);
 
     try {
-      const result = await generateMessages(
+      const result = await startGeneration(
         uploadedFiles.campaignId,
         uploadedFiles.smsFile,
         uploadedFiles.personasFile,
         segment,
         product
       );
-      setMessages(result.messages);
-      setPhase('done');
-      toast.success(`Generated ${result.messages.length} messages!`);
+
+      // ── Cache hit: previous approved messages returned immediately ──────────
+      if (result.cached) {
+        setMessages(result.messages);
+        setPhase('done');
+        toast.success(
+          `📋 Previous campaign found — loaded ${result.messages.length} approved message${result.messages.length !== 1 ? 's' : ''}!`,
+          { duration: 6_000 }
+        );
+        return;
+      }
+
+      // ── Job started: begin polling ──────────────────────────────────────────
+      setJobId(result.jobId);
+      startPolling(result.jobId, result.count);
+
     } catch (error: unknown) {
-      let msg = 'Failed to generate messages';
+      let msg = 'Failed to start generation';
       if (axios.isAxiosError(error) && error.response?.data?.error) {
         msg = error.response.data.error;
       } else if (error instanceof Error) {
         msg = error.message;
       }
-      toast.error(msg, { duration: 10000 });
+      toast.error(msg, { duration: 10_000 });
       console.error('[Generate]', error);
-      setPhase('ready'); // allow retry
+      setPhase('ready');
     }
   };
 
@@ -80,12 +138,7 @@ function App() {
     toast.success('Message approved!');
 
     try {
-      await approveMessage(
-        uploadedFiles.campaignId,
-        msg.personaName,
-        messageText,
-        criticScore
-      );
+      await approveMessage(uploadedFiles.campaignId, msg.personaName, messageText, criticScore);
     } catch {
       // non-blocking
     }
@@ -100,12 +153,7 @@ function App() {
     }
     toast('Message discarded', { icon: '🗑' });
     try {
-      await rejectMessage(
-        uploadedFiles.campaignId,
-        message.personaName,
-        message.message,
-        message.criticScore
-      );
+      await rejectMessage(uploadedFiles.campaignId, message.personaName, message.message, message.criticScore);
     } catch {
       // non-blocking
     }
@@ -119,9 +167,7 @@ function App() {
       message: m.message,
       criticScore: m.criticScore,
     }));
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -142,7 +188,7 @@ function App() {
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">Marketing Agent</h1>
           <p className="text-gray-600">
-            Generate and refine personalized SMS messages at scale
+            Generate and refine personalized Viber messages at scale
           </p>
         </header>
 
@@ -211,7 +257,7 @@ function App() {
               🚀 Generate Messages
             </button>
             <p className="text-center text-gray-400 text-xs mt-2">
-              Takes 1–3 min · keep this tab open
+              Takes 1–3 min · results appear as each persona completes
             </p>
             <button
               onClick={() => { setUploadedFiles(null); setPhase('upload'); }}
@@ -222,19 +268,41 @@ function App() {
           </div>
         )}
 
-        {/* ── Phase: generating ── */}
+        {/* ── Phase: generating — show live progress ── */}
         {phase === 'generating' && (
           <div className="max-w-lg mx-auto bg-white p-10 rounded-lg shadow-md text-center">
             <div className="animate-spin rounded-full h-14 w-14 border-4 border-blue-600 border-t-transparent mx-auto mb-6" />
             <h2 className="text-xl font-bold text-gray-800 mb-2">
               AI Critic Loop Running…
             </h2>
-            <p className="text-gray-500 text-sm mb-1">
+            <p className="text-gray-500 text-sm mb-4">
               Copywriter → Critic → Refinement for each persona
             </p>
-            <p className="text-gray-400 text-xs">
-              Please keep this tab open. Results will appear automatically.
-            </p>
+
+            {/* Progress bar */}
+            {jobProgress.total > 0 && (
+              <div className="mt-2">
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>Personas complete</span>
+                  <span className="font-semibold tabular-nums">
+                    {jobProgress.completed} / {jobProgress.total}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className="bg-blue-500 h-3 rounded-full transition-all duration-700"
+                    style={{ width: `${Math.round((jobProgress.completed / jobProgress.total) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-3">
+                  Results will appear automatically · safe to minimize this tab
+                </p>
+              </div>
+            )}
+
+            {jobId && (
+              <p className="text-xs text-gray-300 mt-4 font-mono">job: {jobId}</p>
+            )}
           </div>
         )}
 

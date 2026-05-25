@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { CriticScore } from '../types';
+import type { CriticScore, GeneratedMessage } from '../types';
 
 const API_URL =
   process.env.REACT_APP_API_URL ||
@@ -17,19 +17,41 @@ export async function uploadFiles(smsTemplate: File, personasFile: File) {
   return response.data;
 }
 
-export async function generateMessages(
+/**
+ * Start an async generation job.
+ *
+ * Returns either:
+ *  { cached: true, messages, count }   – previous approved messages found
+ *  { jobId, count }                    – job started; poll /api/jobs/:jobId
+ */
+export async function startGeneration(
   campaignId: string,
   smsTemplateFile: string,
   personasFile: string,
   segment: string,
   product: string
-) {
-  // Agentic generation can take several minutes for many personas.
+): Promise<
+  | { cached: true; messages: GeneratedMessage[]; count: number }
+  | { cached?: false; jobId: string; count: number }
+> {
   const response = await api.post(
     '/generate',
     { campaignId, smsTemplateFile, personasFile, segment, product },
-    { timeout: 5 * 60 * 1000 }
+    { timeout: 30_000 } // just needs to start the job — 30 s is plenty
   );
+  return response.data;
+}
+
+/** Poll a running generation job. */
+export async function pollJob(jobId: string): Promise<{
+  id: string;
+  status: 'running' | 'done' | 'error';
+  messages: GeneratedMessage[];
+  error?: string;
+  completedCount: number;
+  totalCount: number;
+}> {
+  const response = await api.get(`/jobs/${jobId}`);
   return response.data;
 }
 

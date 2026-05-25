@@ -86,6 +86,7 @@ export interface GeneratedMessage {
 
 export interface Campaign {
   id: string;
+  cacheKey?: string;   // segment__product__personasHash__templateHash
   smsTemplate: string;
   segment: string;
   product: string;

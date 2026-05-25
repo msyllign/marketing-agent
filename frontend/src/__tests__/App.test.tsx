@@ -16,7 +16,7 @@ describe('App Component', () => {
     render(<App />);
 
     expect(screen.getByText('Marketing Agent')).toBeInTheDocument();
-    expect(screen.getByText(/Generate and refine personalized SMS messages/)).toBeInTheDocument();
+    expect(screen.getByText(/Generate and refine personalized/)).toBeInTheDocument();
   });
 
   test('displays file upload component initially', () => {
@@ -41,8 +41,10 @@ describe('App Component', () => {
       },
     ];
 
-    (api.generateMessages as jest.Mock).mockResolvedValue({
+    (api.startGeneration as jest.Mock).mockResolvedValue({
+      cached: true,
       messages: mockMessages,
+      count: mockMessages.length,
     });
 
     render(<App />);
