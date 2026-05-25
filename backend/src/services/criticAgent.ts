@@ -49,19 +49,33 @@ const SCORE_TOOL: Anthropic.Tool = {
 
 /**
  * Cached system prompt block for the critic.
- * Contains all stable content: role + guidelines + reference template.
+ * Contains all stable content: role + guidelines + reference template + offer policy.
  * Reused across all persona evaluations in the same campaign.
  */
 function buildCachedCriticSystemBlocks(
   aiTrainingPack: AITrainingPack,
   referenceTemplate: string,
   segment: string,
-  product: string
+  product: string,
+  campaignOffer: string | null
 ): Anthropic.TextBlockParam[] {
   const guidelines =
     aiTrainingPack.validationGuidelines ||
     aiTrainingPack.languageGuidelines ||
     '(No guidelines provided — use general banking communication standards)';
+
+  const offerRule = campaignOffer
+    ? `═══ OFFER COMPLIANCE RULE ═══
+This campaign includes ONE specific approved offer: "${campaignOffer}"
+Only this exact offer is valid. If the message contains any OTHER offer, discount, cashback,
+reward, bonus points, sweepstakes, or promotion — that is a compliance violation.
+List it in complianceViolations.`
+    : `═══ OFFER COMPLIANCE RULE ═══
+This campaign has NO specific offer. The Product Description offer field is blank.
+If the evaluated message contains ANY offer, discount, cashback, reward, bonus points,
+sweepstakes, or promotion — including any found in the Reference Template — that is a
+HARD compliance violation. List it explicitly in complianceViolations and lower
+complianceScore and approvalProbability accordingly.`;
 
   const text = `You are a senior marketing compliance reviewer for a financial institution (bank).
 
@@ -70,15 +84,20 @@ Campaign: ${segment} segment · ${product}
 ═══ AI TRAINING PACK — VALIDATION GUIDELINES (BINDING RULES) ═══
 ${guidelines.slice(0, 1500)}
 
-═══ REFERENCE TEMPLATE (approved communication structure) ═══
+═══ REFERENCE TEMPLATE (communication style guide — NOT a source of offers) ═══
 "${referenceTemplate}"
+NOTE: The template above shows approved tone and structure only. Any offer visible in it
+belonged to a previous campaign and is NOT valid for this campaign.
+
+${offerRule}
 
 EVALUATION INSTRUCTIONS:
 1. Check the message against EVERY guideline above.
 2. Compare structure and tone to the Reference Template.
-3. Score complianceScore strictly — any violation lowers it.
-4. Set approvalProbability based on violation count and severity.
-5. List EVERY violated guideline in complianceViolations.`;
+3. Apply the Offer Compliance Rule strictly — any violation is a hard failure.
+4. Score complianceScore strictly — any violation lowers it.
+5. Set approvalProbability based on violation count and severity.
+6. List EVERY violated guideline in complianceViolations.`;
 
   return [
     {
@@ -95,7 +114,8 @@ export async function scoreDraft(
   persona: Persona,
   aiTrainingPack: AITrainingPack,
   segment: string,
-  product: string
+  product: string,
+  campaignOffer: string | null
 ): Promise<CriticScore> {
   const userContent =
     `PERSONA: ${persona.name}\n` +
@@ -109,7 +129,7 @@ export async function scoreDraft(
     max_tokens: 1500,
     tools: [SCORE_TOOL],
     tool_choice: { type: 'tool', name: 'score_draft' },
-    system: buildCachedCriticSystemBlocks(aiTrainingPack, referenceTemplate, segment, product),
+    system: buildCachedCriticSystemBlocks(aiTrainingPack, referenceTemplate, segment, product, campaignOffer),
     messages: [{ role: 'user', content: userContent }],
   });
 

@@ -138,23 +138,61 @@ function parseAITrainingPackSheet(sheet: XLSX.WorkSheet): AITrainingPack {
 }
 
 // ── Product's Description sheet ─────────────────────────────────────────────
+//
+// Scans for a "campaign specific offer" row.
+// Keywords (EN + GR): campaign offer | specific offer | προσφορά | ειδική προσφορά | promotion
+// If that row's value cell is blank → campaignOffer = null (no offer this campaign)
+// If it has content → campaignOffer = that text
+// All other rows are collected into the product description block.
 
-function parseProductDescriptionSheet(sheet: XLSX.WorkSheet): ProductDescription {
+const OFFER_ROW_KEYWORDS = [
+  'campaign offer', 'specific offer', 'campaign specific', 'campaign action',
+  'promotion', 'incentive', 'προσφορά', 'ειδική', 'προωθητική',
+];
+
+function isOfferRow(label: string): boolean {
+  const lower = label.toLowerCase();
+  return OFFER_ROW_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function parseProductDescriptionSheet(sheet: XLSX.WorkSheet): {
+  products: ProductDescription;
+  campaignOffer: string | null;
+} {
   const rows = sheetToRows(sheet);
   const lines: string[] = [];
+  let campaignOffer: string | null = null;
+
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
-    const cells = (row as unknown[]).map((c) => String(c ?? '').trim()).filter(Boolean);
-    if (cells.length === 0) continue;
-    if (cells.length >= 2) {
-      lines.push(`${cells[0]}: ${cells.slice(1).join(' | ')}`);
+    const rawRow = row as unknown[];
+    const label = String(rawRow[0] ?? '').trim();
+    if (!label) continue;
+
+    if (isOfferRow(label)) {
+      // Collect all non-empty value cells after the label
+      const value = rawRow
+        .slice(1)
+        .map((c) => String(c ?? '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      campaignOffer = value || null;
+      console.log(
+        `[FileService] Campaign offer row "${label}": ${campaignOffer ?? '(blank — no offer)'}`
+      );
     } else {
-      lines.push(cells[0]);
+      const cells = rawRow.map((c) => String(c ?? '').trim()).filter(Boolean);
+      if (cells.length >= 2) {
+        lines.push(`${cells[0]}: ${cells.slice(1).join(' | ')}`);
+      } else if (cells.length === 1) {
+        lines.push(cells[0]);
+      }
     }
   }
-  const description = lines.join('\n');
+
   console.log(`[FileService] Product description (${lines.length} lines)`);
-  return { product: { description } };
+  return { products: { product: { description: lines.join('\n') } }, campaignOffer };
 }
 
 // ── In-memory cache ──────────────────────────────────────────────────────────
@@ -163,6 +201,7 @@ export interface ParsedFileData {
   personas: Persona[];
   aiTrainingPack: AITrainingPack;
   products: ProductDescription;
+  campaignOffer: string | null;   // null = no offer for this campaign
   sheetNames: string[];
 }
 
@@ -215,6 +254,7 @@ export function parsePersonasFile(filePath: string): ParsedFileData {
     personas: [],
     aiTrainingPack: {},
     products: {},
+    campaignOffer: null,
     sheetNames,
   };
 
@@ -233,7 +273,9 @@ export function parsePersonasFile(filePath: string): ParsedFileData {
       console.log(`[FileService] AI Training Pack from "${name}"`);
     } else if (matchesSheet(name, ["product's description", 'product description',
         'products description', 'products desc', 'product desc', 'product'])) {
-      result.products = parseProductDescriptionSheet(sheet);
+      const parsed = parseProductDescriptionSheet(sheet);
+      result.products = parsed.products;
+      result.campaignOffer = parsed.campaignOffer;
       console.log(`[FileService] Product description from "${name}"`);
     }
   }

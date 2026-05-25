@@ -52,13 +52,14 @@ router.post('/', async (req, res, next) => {
     const personasPath = path.join(UPLOADS_DIR, personasFile);
 
     const smsTemplate = await parseSmsTemplate(smsPath);
-    const { personas, aiTrainingPack, products, sheetNames } =
+    const { personas, aiTrainingPack, products, campaignOffer, sheetNames } =
       parsePersonasFile(personasPath);
 
     console.log(`[Generate] Sheet names: [${sheetNames.join(', ')}]`);
     console.log(
       `[Generate] Parsed: ${personas.length} personas | ` +
-      `segment="${segment}" | product="${product}"`
+      `segment="${segment}" | product="${product}" | ` +
+      `offer=${campaignOffer ? `"${campaignOffer}"` : '(none)'}`
     );
 
     if (personas.length === 0) {
@@ -83,7 +84,8 @@ router.post('/', async (req, res, next) => {
               aiTrainingPack,
               products,
               segment,
-              product
+              product,
+              campaignOffer
             );
 
           console.log(

@@ -20,8 +20,8 @@ const MAX_ITERATIONS = 2;
 
 /**
  * Build the CACHED system prompt block.
- * Contains everything that is stable across all persona generations in one campaign:
- * role + AI training pack + product details + reference template.
+ * Contains everything stable across all persona generations in one campaign:
+ * role + AI training pack + product details + reference template + offer policy.
  * Marked with cache_control so Anthropic reuses it across all API calls.
  */
 function buildCachedSystemBlocks(
@@ -29,7 +29,8 @@ function buildCachedSystemBlocks(
   productDetails: string,
   referenceTemplate: string,
   segment: string,
-  product: string
+  product: string,
+  campaignOffer: string | null
 ): Anthropic.TextBlockParam[] {
   const lines: string[] = [];
 
@@ -50,9 +51,32 @@ function buildCachedSystemBlocks(
     lines.push('\nProduct Details:\n' + productDetails);
   }
 
+  // Template is a STYLE guide only — not a source of offers
   lines.push(
-    `\nReference Template (previously approved communication):\n"${referenceTemplate}"`
+    `\nReference Template (communication STYLE guide — approved tone and structure):\n"${referenceTemplate}"\n` +
+    `IMPORTANT: The template above shows HOW the bank communicates (tone, structure, language). ` +
+    `It is NOT a source of offers or promotions. Any offer visible in the template ` +
+    `belonged to a previous campaign and must NOT be reused unless explicitly listed below.`
   );
+
+  // ── Offer policy — highest-priority compliance rule ──────────────────────
+  if (campaignOffer) {
+    lines.push(
+      `\n═══ CAMPAIGN OFFER POLICY ═══\n` +
+      `This campaign includes ONE specific offer:\n"${campaignOffer}"\n` +
+      `You MAY include this offer when it is relevant to the persona.\n` +
+      `Do NOT invent or add any other offers, discounts, cashback, rewards, points, or incentives.`
+    );
+  } else {
+    lines.push(
+      `\n═══ CAMPAIGN OFFER POLICY ═══\n` +
+      `This campaign has NO specific offer — the offer section in the Product Description is blank.\n` +
+      `STRICTLY FORBIDDEN: any promotional offers, discounts, cashback, rewards, bonus points,\n` +
+      `sweepstakes, or incentives — including any that appear in the reference template.\n` +
+      `The reference template's offers are from a previous campaign and are NOT valid here.\n` +
+      `Including any offer in the message when none exists is a hard compliance failure.`
+    );
+  }
 
   lines.push(
     '\nYour task: Generate personalized Rich Viber messages in Greek, under 1000 characters. ' +
@@ -71,7 +95,7 @@ function buildCachedSystemBlocks(
 /**
  * Build the per-persona user message.
  * Contains only what changes per persona: base profile + product-specific row + feedback.
- * This is NOT cached (it's small and unique per persona).
+ * NOT cached — small and unique per persona.
  */
 function buildPersonaUserMessage(
   persona: Persona,
@@ -118,6 +142,7 @@ async function generateDraft(
   products: ProductDescription,
   segment: string,
   product: string,
+  campaignOffer: string | null,
   feedbackContext: string,
   previousDraft?: string,
   critiqueImprovements?: string[]
@@ -127,15 +152,14 @@ async function generateDraft(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
-    system: buildCachedSystemBlocks(aiTrainingPack, productDetails, smsTemplate, segment, product),
+    system: buildCachedSystemBlocks(
+      aiTrainingPack, productDetails, smsTemplate, segment, product, campaignOffer
+    ),
     messages: [
       {
         role: 'user',
         content: buildPersonaUserMessage(
-          persona,
-          feedbackContext,
-          previousDraft,
-          critiqueImprovements
+          persona, feedbackContext, previousDraft, critiqueImprovements
         ),
       },
     ],
@@ -154,7 +178,8 @@ export async function generateWithCriticLoop(
   aiTrainingPack: AITrainingPack,
   products: ProductDescription,
   segment: string,
-  product: string
+  product: string,
+  campaignOffer: string | null
 ): Promise<{
   message: string;
   criticScore: CriticScore;
@@ -177,12 +202,7 @@ export async function generateWithCriticLoop(
     console.log(`[Agent] ${persona.name} — iteration ${iterationsUsed}/${MAX_ITERATIONS}`);
 
     currentDraft = await generateDraft(
-      smsTemplate,
-      persona,
-      aiTrainingPack,
-      products,
-      segment,
-      product,
+      smsTemplate, persona, aiTrainingPack, products, segment, product, campaignOffer,
       feedbackContext,
       i > 0 ? currentDraft : undefined,
       i > 0
@@ -191,12 +211,7 @@ export async function generateWithCriticLoop(
     );
 
     currentScore = await scoreDraft(
-      currentDraft,
-      smsTemplate,
-      persona,
-      aiTrainingPack,
-      segment,
-      product
+      currentDraft, smsTemplate, persona, aiTrainingPack, segment, product, campaignOffer
     );
 
     console.log(
