@@ -1,14 +1,22 @@
 import { Router } from 'express';
 import { approveMessage, exportApprovedMessages } from '../services/messageService';
+import { appendFeedback } from '../services/feedbackStore';
+import type { CriticScore } from '../types';
 
 const router = Router();
 
 router.post('/approve', (req, res, next) => {
   try {
-    const { campaignId, personaName, message } = req.body as {
+    const {
+      campaignId,
+      personaName,
+      message,
+      criticScore,
+    } = req.body as {
       campaignId: string;
       personaName: string;
       message: string;
+      criticScore?: CriticScore;
     };
 
     if (!campaignId || !personaName || !message) {
@@ -21,6 +29,18 @@ router.post('/approve', (req, res, next) => {
       res.status(404).json({ error: 'Campaign not found' });
       return;
     }
+
+    // Persist approval to feedback memory
+    appendFeedback({
+      personaName,
+      campaignId,
+      timestamp: new Date().toISOString(),
+      type: 'approved',
+      message,
+      criticScore,
+    });
+
+    console.log(`[Feedback] Stored approval for "${personaName}" (score: ${criticScore?.score ?? 'N/A'})`);
 
     res.json({ success: true, campaign });
   } catch (err) {

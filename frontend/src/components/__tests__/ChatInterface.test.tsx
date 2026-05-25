@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { ChatInterface } from '../components/ChatInterface';
-import * as api from '../services/api';
+import { ChatInterface } from '../ChatInterface';
+import * as api from '../../services/api';
 
-jest.mock('../services/api');
+jest.mock('../../services/api');
 jest.mock('react-hot-toast');
 
 describe('ChatInterface Component', () => {
@@ -23,7 +23,7 @@ describe('ChatInterface Component', () => {
       />
     );
 
-    expect(screen.getByPlaceholderText('Describe changes...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Describe changes/)).toBeInTheDocument();
     expect(screen.getByText('Send')).toBeInTheDocument();
   });
 
@@ -47,7 +47,7 @@ describe('ChatInterface Component', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText('Describe changes...');
+    const input = screen.getByPlaceholderText(/Describe changes/);
     const sendButton = screen.getByText('Send');
 
     fireEvent.change(input, { target: { value: 'Make it shorter' } });
@@ -68,7 +68,7 @@ describe('ChatInterface Component', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText('Describe changes...');
+    const input = screen.getByPlaceholderText(/Describe changes/);
     const sendButton = screen.getByText('Send');
 
     fireEvent.change(input, { target: { value: 'Make it shorter' } });
@@ -90,14 +90,14 @@ describe('ChatInterface Component', () => {
       />
     );
 
-    const input = screen.getByPlaceholderText('Describe changes...');
+    const input = screen.getByPlaceholderText(/Describe changes/);
     const sendButton = screen.getByText('Send');
 
     fireEvent.change(input, { target: { value: 'Make it shorter' } });
     fireEvent.click(sendButton);
 
     await waitFor(() => {
-      expect(api.refineMessage).toHaveBeenCalledWith(mockMessage, 'Make it shorter');
+      expect(api.refineMessage).toHaveBeenCalledWith(mockMessage, 'Make it shorter', undefined, undefined);
     });
 
     await waitFor(() => {

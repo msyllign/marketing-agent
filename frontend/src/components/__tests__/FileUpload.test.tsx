@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { FileUpload } from '../components/FileUpload';
-import * as api from '../services/api';
+import { FileUpload } from '../FileUpload';
+import * as api from '../../services/api';
 
-jest.mock('../services/api');
+jest.mock('../../services/api');
 jest.mock('react-hot-toast');
 
 describe('FileUpload Component', () => {

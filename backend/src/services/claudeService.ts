@@ -4,18 +4,20 @@ import type {
   CampaignBrief,
   AITrainingPack,
   ProductDescription,
+  CriticScore,
 } from '../types';
+import { scoreDraft } from './criticAgent';
+import { buildFeedbackContext } from './feedbackStore';
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
-/**
- * Build a system prompt for the campaign copywriter role,
- * incorporating the AI Training Pack guidelines.
- */
+// Agentic loop settings
+const SCORE_THRESHOLD = 7;
+const MAX_ITERATIONS = 3;
+
+// ── Prompt builders ──────────────────────────────────────────────────────────
+
 function buildSystemPrompt(trainingPack: AITrainingPack): string {
   const parts: string[] = [];
 
@@ -46,42 +48,38 @@ function buildSystemPrompt(trainingPack: AITrainingPack): string {
   return parts.join('\n\n');
 }
 
-/**
- * Build the user prompt for generating a message for a specific persona.
- */
-function buildUserPrompt(
+function buildCopywriterPrompt(
   smsTemplate: string,
   persona: Persona,
   brief: CampaignBrief,
-  products: ProductDescription
+  products: ProductDescription,
+  feedbackContext: string,
+  previousDraft?: string,
+  critiqueImprovements?: string[]
 ): string {
   const personaDetails: string[] = [];
-
   if (persona.generalDescription) {
     personaDetails.push(`General Description: ${persona.generalDescription}`);
   }
   if (persona.needs) {
-    // Truncate long needs text to avoid overly long prompts
-    const needsPreview = persona.needs.slice(0, 500);
-    personaDetails.push(`Key Needs: ${needsPreview}`);
+    personaDetails.push(`Key Needs: ${persona.needs.slice(0, 500)}`);
   }
   if (persona.milestones) {
-    const milestonesPreview = persona.milestones.slice(0, 300);
-    personaDetails.push(`Life Milestones: ${milestonesPreview}`);
+    personaDetails.push(`Life Milestones: ${persona.milestones.slice(0, 300)}`);
   }
 
   const productInfo = Object.entries(products)
-    .map(([name, p]) => `${name}: ${p.description?.slice(0, 150) || ''}`)
+    .map(([name, p]) => `${name}: ${p.description?.slice(0, 150) ?? ''}`)
     .join('\n');
 
   const briefContext: string[] = [];
   if (brief.title) briefContext.push(`Campaign: ${brief.title}`);
   if (brief.primaryMessage) briefContext.push(`Primary Message: ${brief.primaryMessage}`);
-  if (brief.secondaryMessage) briefContext.push(`Secondary Message: ${brief.secondaryMessage?.slice(0, 200)}`);
+  if (brief.secondaryMessage) briefContext.push(`Secondary: ${brief.secondaryMessage?.slice(0, 200)}`);
   if (brief.crossSell) briefContext.push(`Cross-sell: ${brief.crossSell}`);
-  if (brief.additionalInfo) briefContext.push(`Additional Info: ${brief.additionalInfo?.slice(0, 200)}`);
+  if (brief.additionalInfo) briefContext.push(`Additional: ${brief.additionalInfo?.slice(0, 200)}`);
 
-  return `Generate a personalized Rich Viber message for the following customer segment:
+  let prompt = `Generate a personalized Rich Viber message for:
 
 PERSONA: ${persona.name}
 ${personaDetails.join('\n')}
@@ -90,22 +88,126 @@ CAMPAIGN CONTEXT:
 ${briefContext.join('\n')}
 
 PRODUCTS:
-${productInfo}
+${productInfo}`;
 
-BASE SMS TEMPLATE (use as inspiration, adapt for the persona):
+  // Inject past feedback if available
+  if (feedbackContext) {
+    prompt += `\n\n${feedbackContext}`;
+  }
+
+  // Refinement instruction when improving a previous draft
+  if (previousDraft && critiqueImprovements?.length) {
+    prompt += `\n\nPREVIOUS DRAFT (needs improvement):
+"${previousDraft}"
+
+CRITIC FEEDBACK — address ALL of these:
+${critiqueImprovements.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+Write an improved version that fixes every point above.`;
+  } else {
+    prompt += `\n\nBASE SMS TEMPLATE (adapt for this persona):
 "${smsTemplate}"
 
-Generate a personalized Viber message for the "${persona.name}" segment. The message should:
-- Be relevant to their life stage and needs
-- Promote the Silver credit card activation/usage
-- Include a call-to-action
-- Be in Greek (same language as the template)
-- Be concise and engaging (under 1000 characters)`;
+Generate a personalized Viber message for "${persona.name}". Be concise, engaging, in Greek, under 1000 characters.`;
+  }
+
+  return prompt;
 }
 
+// ── Single-shot message generation ──────────────────────────────────────────
+
+async function generateDraft(
+  smsTemplate: string,
+  persona: Persona,
+  brief: CampaignBrief,
+  aiTrainingPack: AITrainingPack,
+  products: ProductDescription,
+  feedbackContext: string,
+  previousDraft?: string,
+  critiqueImprovements?: string[]
+): Promise<string> {
+  const systemPrompt = buildSystemPrompt(aiTrainingPack);
+  const userPrompt = buildCopywriterPrompt(
+    smsTemplate,
+    persona,
+    brief,
+    products,
+    feedbackContext,
+    previousDraft,
+    critiqueImprovements
+  );
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const content = response.content[0];
+  if (content.type !== 'text') throw new Error('Unexpected response type from Claude');
+  return content.text.trim();
+}
+
+// ── Agentic loop: Copywriter → Critic → Refine ───────────────────────────────
+
 /**
- * Generate a personalized Viber message for a single persona.
+ * Run the full agentic generation loop for one persona:
+ * 1. Load past feedback context
+ * 2. Generate draft
+ * 3. Critic scores it
+ * 4. If score < threshold, refine and repeat (max iterations)
+ * 5. Return best message with metadata
  */
+export async function generateWithCriticLoop(
+  smsTemplate: string,
+  persona: Persona,
+  brief: CampaignBrief,
+  aiTrainingPack: AITrainingPack,
+  products: ProductDescription
+): Promise<{
+  message: string;
+  criticScore: CriticScore;
+  refinementIterations: number;
+}> {
+  const feedbackContext = buildFeedbackContext(persona.name);
+  let currentDraft = '';
+  let currentScore: CriticScore = { score: 0, strengths: [], improvements: [] };
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    console.log(`[Agent] ${persona.name} — iteration ${i + 1}/${MAX_ITERATIONS}`);
+
+    // Generate (or refine previous draft)
+    currentDraft = await generateDraft(
+      smsTemplate,
+      persona,
+      brief,
+      aiTrainingPack,
+      products,
+      feedbackContext,
+      i > 0 ? currentDraft : undefined,
+      i > 0 ? currentScore.improvements : undefined
+    );
+
+    // Critic evaluation
+    currentScore = await scoreDraft(currentDraft, persona, brief, aiTrainingPack);
+    console.log(
+      `[Agent] ${persona.name} — score ${currentScore.score}/10 ` +
+      `(threshold ${SCORE_THRESHOLD})`
+    );
+
+    if (currentScore.score >= SCORE_THRESHOLD) break;
+  }
+
+  return {
+    message: currentDraft,
+    criticScore: currentScore,
+    refinementIterations: MAX_ITERATIONS,
+  };
+}
+
+// ── Legacy single-shot (kept for backward compat) ────────────────────────────
+
 export async function generatePersonalizedMessage(
   smsTemplate: string,
   persona: Persona,
@@ -113,32 +215,12 @@ export async function generatePersonalizedMessage(
   aiTrainingPack: AITrainingPack,
   products: ProductDescription
 ): Promise<string> {
-  const systemPrompt = buildSystemPrompt(aiTrainingPack);
-  const userPrompt = buildUserPrompt(smsTemplate, persona, brief, products);
-
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: userPrompt,
-      },
-    ],
-  });
-
-  const content = response.content[0];
-  if (content.type !== 'text') {
-    throw new Error('Unexpected response type from Claude API');
-  }
-
-  return content.text.trim();
+  const feedbackContext = buildFeedbackContext(persona.name);
+  return generateDraft(smsTemplate, persona, brief, aiTrainingPack, products, feedbackContext);
 }
 
-/**
- * Refine an existing message based on user feedback.
- */
+// ── User-triggered refinement ────────────────────────────────────────────────
+
 export async function refineMessage(
   originalMessage: string,
   feedback: string
@@ -152,15 +234,12 @@ export async function refineMessage(
     messages: [
       {
         role: 'user',
-        content: `Original message:\n"${originalMessage}"\n\nFeedback: ${feedback}\n\nPlease provide the refined message.`,
+        content: `Original message:\n"${originalMessage}"\n\nFeedback: ${feedback}\n\nWrite the refined message.`,
       },
     ],
   });
 
   const content = response.content[0];
-  if (content.type !== 'text') {
-    throw new Error('Unexpected response type from Claude API');
-  }
-
+  if (content.type !== 'text') throw new Error('Unexpected response type from Claude');
   return content.text.trim();
 }

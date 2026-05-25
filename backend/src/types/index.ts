@@ -40,11 +40,39 @@ export interface CampaignData {
   smsTemplate: string;
 }
 
+// ── Critic / Feedback types ──────────────────────────────────────────────────
+
+export interface CriticScore {
+  score: number;        // 1–10
+  strengths: string[];
+  improvements: string[];
+}
+
+export type FeedbackRecordType = 'approved' | 'rejected' | 'user_refinement';
+
+export interface FeedbackRecord {
+  personaName: string;
+  campaignId: string;
+  timestamp: string;
+  type: FeedbackRecordType;
+  message: string;
+  criticScore?: CriticScore;
+  userFeedback?: string;   // populated for user_refinement records
+}
+
+export interface FeedbackStore {
+  [personaName: string]: FeedbackRecord[];
+}
+
+// ── Generated message (extended with critic metadata) ────────────────────────
+
 export interface GeneratedMessage {
   personaName: string;
   persona: Persona;
   message: string;
   approved: boolean;
+  criticScore?: CriticScore;
+  refinementIterations?: number;
 }
 
 export interface Campaign {

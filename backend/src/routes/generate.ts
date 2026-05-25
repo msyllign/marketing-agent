@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import * as path from 'path';
 import { parseSmsTemplate, parsePersonasFile } from '../services/fileService';
-import { generatePersonalizedMessage } from '../services/claudeService';
+import { generateWithCriticLoop } from '../services/claudeService';
 import { saveCampaign } from '../services/messageService';
 import type { GeneratedMessage } from '../types';
 
 const router = Router();
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+const CONCURRENCY = 2; // conservative to respect API rate limits
 
 router.post('/', async (req, res, next) => {
   try {
@@ -17,14 +18,15 @@ router.post('/', async (req, res, next) => {
     };
 
     if (!campaignId || !smsTemplateFile || !personasFile) {
-      res.status(400).json({ error: 'campaignId, smsTemplateFile, and personasFile are required' });
+      res.status(400).json({
+        error: 'campaignId, smsTemplateFile, and personasFile are required',
+      });
       return;
     }
 
     const smsPath = path.join(UPLOADS_DIR, smsTemplateFile);
     const personasPath = path.join(UPLOADS_DIR, personasFile);
 
-    // Parse uploaded files
     const smsTemplate = await parseSmsTemplate(smsPath);
     const { personas, brief, aiTrainingPack, products } = parsePersonasFile(personasPath);
 
@@ -33,37 +35,43 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
-    console.log(`[Generate] Campaign ${campaignId}: ${personas.length} personas found`);
-    console.log('[Generate] Personas:', personas.map((p) => p.name).join(', '));
+    console.log(`[Generate] Campaign ${campaignId}: ${personas.length} personas`);
+    console.log('[Generate] Running agentic loop for each persona...');
 
-    // Generate messages concurrently (with a concurrency cap to avoid rate limits)
-    const CONCURRENCY = 3;
     const messages: GeneratedMessage[] = [];
 
+    // Process in batches to respect API rate limits
     for (let i = 0; i < personas.length; i += CONCURRENCY) {
       const batch = personas.slice(i, i + CONCURRENCY);
       const batchResults = await Promise.all(
         batch.map(async (persona) => {
-          console.log(`[Generate] Generating for: ${persona.name}`);
-          const message = await generatePersonalizedMessage(
-            smsTemplate,
-            persona,
-            brief,
-            aiTrainingPack,
-            products
+          const { message, criticScore, refinementIterations } =
+            await generateWithCriticLoop(
+              smsTemplate,
+              persona,
+              brief,
+              aiTrainingPack,
+              products
+            );
+
+          console.log(
+            `[Generate] ✓ ${persona.name} — ` +
+            `score ${criticScore.score}/10, ${refinementIterations} iteration(s)`
           );
+
           return {
             personaName: persona.name,
             persona,
             message,
             approved: false,
+            criticScore,
+            refinementIterations,
           } as GeneratedMessage;
         })
       );
       messages.push(...batchResults);
     }
 
-    // Persist campaign state
     saveCampaign({
       id: campaignId,
       smsTemplate,
@@ -75,11 +83,7 @@ router.post('/', async (req, res, next) => {
       createdAt: new Date().toISOString(),
     });
 
-    res.json({
-      campaignId,
-      messages,
-      count: messages.length,
-    });
+    res.json({ campaignId, messages, count: messages.length });
   } catch (err) {
     next(err);
   }
