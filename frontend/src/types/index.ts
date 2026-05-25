@@ -14,6 +14,8 @@ export interface GeneratedMessage {
   persona: Persona;
   message: string;
   approved: boolean;
+  segment?: string;
+  product?: string;
   criticScore?: CriticScore;
   refinementIterations?: number;
 }

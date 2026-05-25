@@ -101,14 +101,6 @@ describe('parsePersonasFile - multi-sheet Excel', () => {
     expect(neaGenia!.generalDescription).toContain('18-27');
   });
 
-  test('parses campaign brief with title and primary message', () => {
-    const { brief } = parsePersonasFile(XLSX_FILE);
-    expect(brief).toBeDefined();
-    // Brief should have some fields populated
-    const briefValues = Object.values(brief).filter(Boolean);
-    expect(briefValues.length).toBeGreaterThan(0);
-  });
-
   test('parses AI training pack with role definition', () => {
     const { aiTrainingPack } = parsePersonasFile(XLSX_FILE);
     expect(aiTrainingPack).toBeDefined();

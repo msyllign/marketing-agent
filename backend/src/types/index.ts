@@ -21,6 +21,7 @@ export interface AITrainingPack {
   purpose?: string;
   roleDefinition?: string;
   languageGuidelines?: string;
+  validationGuidelines?: string;   // full text from AI Training Pack sheet
   segmentDifferentiation?: string;
   [key: string]: string | undefined;
 }
@@ -38,6 +39,8 @@ export interface CampaignData {
   aiTrainingPack: AITrainingPack;
   products: ProductDescription;
   smsTemplate: string;
+  segment: string;
+  product: string;
 }
 
 // ── Critic / Feedback types ──────────────────────────────────────────────────
@@ -57,7 +60,7 @@ export interface FeedbackRecord {
   type: FeedbackRecordType;
   message: string;
   criticScore?: CriticScore;
-  userFeedback?: string;   // populated for user_refinement records
+  userFeedback?: string;
 }
 
 export interface FeedbackStore {
@@ -71,6 +74,8 @@ export interface GeneratedMessage {
   persona: Persona;
   message: string;
   approved: boolean;
+  segment?: string;
+  product?: string;
   criticScore?: CriticScore;
   refinementIterations?: number;
 }
@@ -78,6 +83,8 @@ export interface GeneratedMessage {
 export interface Campaign {
   id: string;
   smsTemplate: string;
+  segment: string;
+  product: string;
   personas: Persona[];
   brief: CampaignBrief;
   aiTrainingPack: AITrainingPack;

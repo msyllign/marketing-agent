@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { CriticScore, Persona, CampaignBrief, AITrainingPack } from '../types';
+import type { CriticScore, Persona, AITrainingPack } from '../types';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
@@ -22,7 +22,7 @@ const SCORE_TOOL: Anthropic.Tool = {
       improvements: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Up to 3 concrete improvements needed (empty if score >= 8)',
+        description: 'Up to 3 concrete improvements needed (empty array if score >= 8)',
       },
     },
     required: ['score', 'strengths', 'improvements'],
@@ -32,46 +32,48 @@ const SCORE_TOOL: Anthropic.Tool = {
 function buildCriticPrompt(
   message: string,
   persona: Persona,
-  brief: CampaignBrief,
-  aiTrainingPack: AITrainingPack
+  aiTrainingPack: AITrainingPack,
+  segment: string,
+  product: string
 ): string {
-  const languageGuideline = aiTrainingPack.languageGuidelines
-    ? `\nBrand language guidelines:\n${aiTrainingPack.languageGuidelines.slice(0, 400)}`
-    : '';
+  const guidelines =
+    aiTrainingPack.validationGuidelines ||
+    aiTrainingPack.languageGuidelines ||
+    '';
 
   return `You are a senior marketing quality reviewer for a bank.
 
-Evaluate the following Viber marketing message for the "${persona.name}" customer segment.
+Evaluate the following Viber message for the **${segment}** customer segment promoting **${product}**.
 
-PERSONA PROFILE:
-- General: ${persona.generalDescription ?? 'N/A'}
-- Key needs: ${(persona.needs ?? '').slice(0, 300)}
+PERSONA: ${persona.name}
+- Description: ${persona.generalDescription ?? 'N/A'}
+- Key needs: ${(persona.needs ?? '').slice(0, 300) || 'N/A'}
 
-CAMPAIGN GOAL: ${brief.primaryMessage ?? brief.title ?? 'Increase credit card usage'}
-${languageGuideline}
+${guidelines ? `VALIDATION GUIDELINES (AI Training Pack):\n${guidelines.slice(0, 800)}\n` : ''}
 
 MESSAGE TO EVALUATE:
 "${message}"
 
 Score this message on:
-1. Relevance to the persona's life stage and needs
-2. Clarity and strength of the call-to-action
-3. Tone appropriateness for the segment
-4. Conciseness (Viber messages should be under 1000 chars)
-5. Compliance with brand language guidelines
+1. Relevance to the persona's profile and needs
+2. Appropriateness for the **${segment}** segment
+3. Clarity and strength of the call-to-action for **${product}**
+4. Compliance with the validation guidelines above
+5. Conciseness (under 1000 characters, natural Greek language)
 
-Use the score_draft tool to return your assessment.`;
+Use the score_draft tool to return your structured assessment.`;
 }
 
 /**
- * Evaluate a message draft and return a structured quality score.
- * Uses forced tool use so the response is always typed JSON — no parsing fragility.
+ * Evaluate a draft and return a structured quality score.
+ * Forced tool use guarantees typed JSON output — no parsing fragility.
  */
 export async function scoreDraft(
   message: string,
   persona: Persona,
-  brief: CampaignBrief,
-  aiTrainingPack: AITrainingPack
+  aiTrainingPack: AITrainingPack,
+  segment: string,
+  product: string
 ): Promise<CriticScore> {
   const response = await client.messages.create({
     model: MODEL,
@@ -81,7 +83,7 @@ export async function scoreDraft(
     messages: [
       {
         role: 'user',
-        content: buildCriticPrompt(message, persona, brief, aiTrainingPack),
+        content: buildCriticPrompt(message, persona, aiTrainingPack, segment, product),
       },
     ],
   });

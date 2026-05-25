@@ -16,9 +16,14 @@ interface UploadedFiles {
 
 type AppPhase = 'upload' | 'ready' | 'generating' | 'done';
 
+const SEGMENTS = ['Premium', 'Mass', 'Business'] as const;
+const PRODUCTS = ['Credit Cards', 'Mutual Funds', 'Safe Wallet'] as const;
+
 function App() {
   const [phase, setPhase] = useState<AppPhase>('upload');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFiles | null>(null);
+  const [segment, setSegment] = useState('');
+  const [product, setProduct] = useState('');
   const [messages, setMessages] = useState<GeneratedMessage[]>([]);
   const [selectedMessage, setSelectedMessage] = useState<GeneratedMessage | null>(null);
   const [refinedMessage, setRefinedMessage] = useState<string | null>(null);
@@ -27,19 +32,21 @@ function App() {
   const handleUploadSuccess = (id: string, smsFile: string, personasFile: string) => {
     setUploadedFiles({ campaignId: id, smsFile, personasFile });
     setPhase('ready');
-    toast.success('Files uploaded! Click Generate to start.');
+    toast.success('Files uploaded! Select segment & product, then generate.');
   };
 
   // ── Step 2: Generate ────────────────────────────────────────────────────────
   const handleGenerate = async () => {
-    if (!uploadedFiles) return;
+    if (!uploadedFiles || !segment || !product) return;
     setPhase('generating');
 
     try {
       const result = await generateMessages(
         uploadedFiles.campaignId,
         uploadedFiles.smsFile,
-        uploadedFiles.personasFile
+        uploadedFiles.personasFile,
+        segment,
+        product
       );
       setMessages(result.messages);
       setPhase('done');
@@ -144,21 +151,68 @@ function App() {
           <FileUpload onUploadSuccess={handleUploadSuccess} />
         )}
 
-        {/* ── Phase: ready (upload done, waiting for user to click Generate) ── */}
+        {/* ── Phase: ready — select segment & product, then generate ── */}
         {phase === 'ready' && uploadedFiles && (
-          <div className="max-w-lg mx-auto bg-white p-8 rounded-lg shadow-md text-center">
-            <div className="text-5xl mb-4">✅</div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Files Uploaded</h2>
-            <p className="text-gray-500 mb-6 text-sm">
-              The AI critic loop will generate and score a personalized message for each
-              persona. This takes <strong>1–3 minutes</strong> — keep the tab open.
-            </p>
+          <div className="max-w-lg mx-auto bg-white p-8 rounded-lg shadow-md">
+            <div className="text-center mb-6">
+              <div className="text-4xl mb-2">✅</div>
+              <h2 className="text-2xl font-bold text-gray-800">Files Uploaded</h2>
+              <p className="text-gray-500 text-sm mt-1">
+                Select the target segment and product, then generate.
+              </p>
+            </div>
+
+            {/* Segment */}
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Customer Segment
+              </label>
+              <select
+                value={segment}
+                onChange={(e) => setSegment(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">— Select segment —</option>
+                {SEGMENTS.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Product */}
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Product
+              </label>
+              <select
+                value={product}
+                onChange={(e) => setProduct(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">— Select product —</option>
+                {PRODUCTS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selected summary */}
+            {segment && product && (
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-blue-800">
+                🎯 <strong>{segment}</strong> segment · <strong>{product}</strong>
+              </div>
+            )}
+
             <button
               onClick={handleGenerate}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-colors"
+              disabled={!segment || !product}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg text-base font-semibold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               🚀 Generate Messages
             </button>
+            <p className="text-center text-gray-400 text-xs mt-2">
+              Takes 1–3 min · keep this tab open
+            </p>
             <button
               onClick={() => { setUploadedFiles(null); setPhase('upload'); }}
               className="mt-3 w-full text-sm text-gray-400 hover:text-gray-600 underline"
@@ -191,9 +245,16 @@ function App() {
             <div className="lg:col-span-2">
               <div className="bg-white p-6 rounded-lg shadow-md mb-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold">
-                    Messages ({approvedCount}/{messages.length} approved)
-                  </h2>
+                  <div>
+                    <h2 className="text-xl font-bold">
+                      Messages ({approvedCount}/{messages.length} approved)
+                    </h2>
+                    {segment && product && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {segment} · {product}
+                      </p>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     {approvedCount > 0 && (
                       <button

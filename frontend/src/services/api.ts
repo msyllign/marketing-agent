@@ -20,13 +20,14 @@ export async function uploadFiles(smsTemplate: File, personasFile: File) {
 export async function generateMessages(
   campaignId: string,
   smsTemplateFile: string,
-  personasFile: string
+  personasFile: string,
+  segment: string,
+  product: string
 ) {
-  // Agentic generation can take several minutes for many personas;
-  // set a generous 5-minute timeout so the browser doesn't give up.
+  // Agentic generation can take several minutes for many personas.
   const response = await api.post(
     '/generate',
-    { campaignId, smsTemplateFile, personasFile },
+    { campaignId, smsTemplateFile, personasFile, segment, product },
     { timeout: 5 * 60 * 1000 }
   );
   return response.data;

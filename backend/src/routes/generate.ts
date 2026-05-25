@@ -7,14 +7,22 @@ import type { GeneratedMessage } from '../types';
 
 const router = Router();
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
-const CONCURRENCY = 1; // sequential — avoids rate-limit cascades and keeps requests short
+const CONCURRENCY = 1; // sequential — keeps request time predictable
 
 router.post('/', async (req, res, next) => {
   try {
-    const { campaignId, smsTemplateFile, personasFile } = req.body as {
+    const {
+      campaignId,
+      smsTemplateFile,
+      personasFile,
+      segment,
+      product,
+    } = req.body as {
       campaignId: string;
       smsTemplateFile: string;
       personasFile: string;
+      segment: string;
+      product: string;
     };
 
     if (!campaignId || !smsTemplateFile || !personasFile) {
@@ -24,12 +32,18 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
-    // Guard: API key must be present
+    if (!segment || !product) {
+      res.status(400).json({
+        error: 'segment and product must be selected before generating',
+      });
+      return;
+    }
+
     if (!process.env.ANTHROPIC_API_KEY) {
       res.status(500).json({
         error:
           'ANTHROPIC_API_KEY is not configured on the server. ' +
-          'Please add it as an environment variable in Railway.',
+          'Add it as an environment variable in Railway.',
       });
       return;
     }
@@ -38,33 +52,26 @@ router.post('/', async (req, res, next) => {
     const personasPath = path.join(UPLOADS_DIR, personasFile);
 
     const smsTemplate = await parseSmsTemplate(smsPath);
-    const { personas, brief, aiTrainingPack, products, sheetNames } =
+    const { personas, aiTrainingPack, products, sheetNames } =
       parsePersonasFile(personasPath);
 
+    console.log(`[Generate] Sheet names: [${sheetNames.join(', ')}]`);
     console.log(
-      `[Generate] Sheet names found: [${sheetNames.join(', ')}]`
-    );
-    console.log(
-      `[Generate] Parsed: ${personas.length} personas, brief="${brief.title ?? 'n/a'}", ` +
-      `products=${Object.keys(products).length}`
+      `[Generate] Parsed: ${personas.length} personas | ` +
+      `segment="${segment}" | product="${product}"`
     );
 
     if (personas.length === 0) {
       res.status(400).json({
         error:
-          `No personas found in the uploaded file. ` +
-          `Sheet names detected: [${sheetNames.join(', ')}]. ` +
-          `Expected a sheet with "lifestage" in its name.`,
+          `No personas found. Sheet names detected: [${sheetNames.join(', ')}]. ` +
+          `Expected a sheet named "Personas Description".`,
       });
       return;
     }
 
-    console.log(`[Generate] Campaign ${campaignId}: ${personas.length} personas`);
-    console.log('[Generate] Running agentic loop for each persona...');
-
     const messages: GeneratedMessage[] = [];
 
-    // Process in batches to respect API rate limits
     for (let i = 0; i < personas.length; i += CONCURRENCY) {
       const batch = personas.slice(i, i + CONCURRENCY);
       const batchResults = await Promise.all(
@@ -73,9 +80,10 @@ router.post('/', async (req, res, next) => {
             await generateWithCriticLoop(
               smsTemplate,
               persona,
-              brief,
               aiTrainingPack,
-              products
+              products,
+              segment,
+              product
             );
 
           console.log(
@@ -88,6 +96,8 @@ router.post('/', async (req, res, next) => {
             persona,
             message,
             approved: false,
+            segment,
+            product,
             criticScore,
             refinementIterations,
           } as GeneratedMessage;
@@ -99,8 +109,10 @@ router.post('/', async (req, res, next) => {
     saveCampaign({
       id: campaignId,
       smsTemplate,
+      segment,
+      product,
       personas,
-      brief,
+      brief: { title: `${product} – ${segment}`, product },
       aiTrainingPack,
       products,
       messages,
