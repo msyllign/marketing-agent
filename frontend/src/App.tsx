@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { MessageCard } from './components/MessageCard';
 import { ChatInterface } from './components/ChatInterface';
+import axios from 'axios';
 import { generateMessages, approveMessage, rejectMessage } from './services/api';
 import { GeneratedMessage, CriticScore } from './types';
 import toast, { Toaster } from 'react-hot-toast';
@@ -21,8 +22,16 @@ function App() {
       const result = await generateMessages(id, smsFile, personasFile);
       setMessages(result.messages);
       toast.success(`Generated ${result.messages.length} messages!`);
-    } catch (error) {
-      toast.error('Failed to generate messages');
+    } catch (error: unknown) {
+      // Surface the actual backend error so the user knows what's wrong
+      let msg = 'Failed to generate messages';
+      if (axios.isAxiosError(error) && error.response?.data?.error) {
+        msg = error.response.data.error;
+      } else if (error instanceof Error) {
+        msg = error.message;
+      }
+      toast.error(msg, { duration: 8000 });
+      console.error('[Generate]', error);
     } finally {
       setLoading(false);
     }

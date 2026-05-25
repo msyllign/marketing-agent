@@ -24,14 +24,38 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
+    // Guard: API key must be present
+    if (!process.env.ANTHROPIC_API_KEY) {
+      res.status(500).json({
+        error:
+          'ANTHROPIC_API_KEY is not configured on the server. ' +
+          'Please add it as an environment variable in Railway.',
+      });
+      return;
+    }
+
     const smsPath = path.join(UPLOADS_DIR, smsTemplateFile);
     const personasPath = path.join(UPLOADS_DIR, personasFile);
 
     const smsTemplate = await parseSmsTemplate(smsPath);
-    const { personas, brief, aiTrainingPack, products } = parsePersonasFile(personasPath);
+    const { personas, brief, aiTrainingPack, products, sheetNames } =
+      parsePersonasFile(personasPath);
+
+    console.log(
+      `[Generate] Sheet names found: [${sheetNames.join(', ')}]`
+    );
+    console.log(
+      `[Generate] Parsed: ${personas.length} personas, brief="${brief.title ?? 'n/a'}", ` +
+      `products=${Object.keys(products).length}`
+    );
 
     if (personas.length === 0) {
-      res.status(400).json({ error: 'No personas found in the uploaded file' });
+      res.status(400).json({
+        error:
+          `No personas found in the uploaded file. ` +
+          `Sheet names detected: [${sheetNames.join(', ')}]. ` +
+          `Expected a sheet with "lifestage" in its name.`,
+      });
       return;
     }
 

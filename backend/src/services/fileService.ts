@@ -202,43 +202,98 @@ export function parsePersonasFile(filePath: string): {
   brief: CampaignBrief;
   aiTrainingPack: AITrainingPack;
   products: ProductDescription;
+  sheetNames: string[];
 } {
   const workbook = XLSX.readFile(filePath, { codepage: 65001 });
   const sheetNames = workbook.SheetNames;
+
+  console.log('[FileService] Excel sheet names:', sheetNames);
 
   const result = {
     personas: [] as Persona[],
     brief: {} as CampaignBrief,
     aiTrainingPack: {} as AITrainingPack,
     products: {} as ProductDescription,
+    sheetNames,
   };
 
-  // Detect multi-sheet campaign brief format
+  // Detect multi-sheet campaign brief format (case-insensitive, also matches partial/Greek names)
   const hasLifestages = sheetNames.some((s) =>
-    s.toLowerCase().includes('lifestage')
+    s.toLowerCase().includes('lifestage') ||
+    s.toLowerCase().includes('life stage') ||
+    s.toLowerCase().includes('segment')
   );
-  const hasCampaignBrief = sheetNames.some((s) =>
-    s.toLowerCase().includes('campaign') || s.toLowerCase().includes('brief')
-  );
+  const hasCampaignBrief = sheetNames.some((s) => {
+    const lower = s.toLowerCase();
+    return (
+      lower.includes('campaign') ||
+      lower.includes('brief') ||
+      lower.includes('brief') ||
+      lower.includes('καμπ') ||  // Greek "campaign"
+      lower.includes('ενημ')     // Greek "brief/update"
+    );
+  });
 
-  if (hasLifestages && hasCampaignBrief) {
+  // If sheet count >= 3, assume it's the rich multi-sheet format even if names don't match
+  const looksMultiSheet = sheetNames.length >= 3;
+
+  if (hasLifestages || (looksMultiSheet && hasCampaignBrief)) {
     // Rich multi-sheet format
+    console.log('[FileService] Detected multi-sheet campaign format');
     for (const name of sheetNames) {
       const sheet = workbook.Sheets[name];
       const lower = name.toLowerCase();
 
-      if (lower.includes('campaign') || lower.includes('brief')) {
+      if (
+        lower.includes('campaign') ||
+        lower.includes('brief') ||
+        lower.includes('καμπ') ||
+        lower.includes('ενημ') ||
+        lower.includes('mass') ||
+        lower.includes('input')
+      ) {
         result.brief = parseCampaignBrief(sheet);
-      } else if (lower.includes('ai train') || lower.includes('training')) {
+        console.log(`[FileService] Parsed brief from sheet "${name}"`);
+      } else if (
+        lower.includes('ai train') ||
+        lower.includes('training') ||
+        lower.includes('pack')
+      ) {
         result.aiTrainingPack = parseAITrainingPack(sheet);
-      } else if (lower.includes("product")) {
+        console.log(`[FileService] Parsed AI training pack from sheet "${name}"`);
+      } else if (lower.includes('product')) {
         result.products = parseProducts(sheet);
-      } else if (lower.includes('lifestage')) {
+        console.log(`[FileService] Parsed products from sheet "${name}"`);
+      } else if (
+        lower.includes('lifestage') ||
+        lower.includes('life stage') ||
+        lower.includes('segment') ||
+        lower.includes('persona')
+      ) {
         result.personas = parseLifestages(sheet);
+        console.log(
+          `[FileService] Parsed ${result.personas.length} personas from sheet "${name}"`
+        );
+      }
+    }
+
+    // If personas still empty, try all remaining sheets as lifestage sheets
+    if (result.personas.length === 0) {
+      for (const name of sheetNames) {
+        const sheet = workbook.Sheets[name];
+        const candidates = parseLifestages(sheet);
+        if (candidates.length > 0) {
+          result.personas = candidates;
+          console.log(
+            `[FileService] Fallback: found ${candidates.length} personas in sheet "${name}"`
+          );
+          break;
+        }
       }
     }
   } else {
     // Simple flat format: first sheet, each row is a persona
+    console.log('[FileService] Using flat single-sheet format');
     const firstSheet = workbook.Sheets[sheetNames[0]];
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
       firstSheet,

@@ -173,9 +173,11 @@ export async function generateWithCriticLoop(
   const feedbackContext = buildFeedbackContext(persona.name);
   let currentDraft = '';
   let currentScore: CriticScore = { score: 0, strengths: [], improvements: [] };
+  let iterationsUsed = 0;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    console.log(`[Agent] ${persona.name} — iteration ${i + 1}/${MAX_ITERATIONS}`);
+    iterationsUsed = i + 1;
+    console.log(`[Agent] ${persona.name} — iteration ${iterationsUsed}/${MAX_ITERATIONS}`);
 
     // Generate (or refine previous draft)
     currentDraft = await generateDraft(
@@ -202,7 +204,7 @@ export async function generateWithCriticLoop(
   return {
     message: currentDraft,
     criticScore: currentScore,
-    refinementIterations: MAX_ITERATIONS,
+    refinementIterations: iterationsUsed,
   };
 }
 
