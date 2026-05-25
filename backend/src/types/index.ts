@@ -4,6 +4,7 @@ export interface Persona {
   milestones?: string;
   needs?: string;
   communication?: string;
+  productProfile?: string;   // row 6: product-specific characteristic
   [key: string]: string | number | undefined;
 }
 

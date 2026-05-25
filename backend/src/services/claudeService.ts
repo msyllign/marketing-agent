@@ -12,99 +12,101 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
 // Agentic loop settings — exit when BOTH quality and compliance reach threshold
-const SCORE_THRESHOLD = 6;       // overall quality threshold
-const COMPLIANCE_THRESHOLD = 6;  // compliance score threshold
-const MAX_ITERATIONS = 2;        // at most 2 attempts per persona
+const SCORE_THRESHOLD = 6;
+const COMPLIANCE_THRESHOLD = 6;
+const MAX_ITERATIONS = 2;
 
 // ── Prompt builders ──────────────────────────────────────────────────────────
 
-function buildSystemPrompt(
+/**
+ * Build the CACHED system prompt block.
+ * Contains everything that is stable across all persona generations in one campaign:
+ * role + AI training pack + product details + reference template.
+ * Marked with cache_control so Anthropic reuses it across all API calls.
+ */
+function buildCachedSystemBlocks(
   aiTrainingPack: AITrainingPack,
+  productDetails: string,
+  referenceTemplate: string,
   segment: string,
   product: string
-): string {
-  const parts: string[] = [];
+): Anthropic.TextBlockParam[] {
+  const lines: string[] = [];
 
-  if (aiTrainingPack.roleDefinition) {
-    parts.push(aiTrainingPack.roleDefinition);
-  } else {
-    parts.push(
-      'You are an expert marketing copywriter specialising in CRM communications for bank customers.'
-    );
-  }
-
-  parts.push(
-    `\nYou are creating messages for the **${segment}** customer segment ` +
-    `promoting **${product}**.`
+  lines.push(
+    aiTrainingPack.roleDefinition ||
+    'You are an expert marketing copywriter specialising in CRM communications for bank customers.'
   );
 
-  if (aiTrainingPack.languageGuidelines) {
-    parts.push('\nLanguage & Style Guidelines:\n' + aiTrainingPack.languageGuidelines);
+  lines.push(`\nCampaign: ${segment} segment · ${product}`);
+
+  if (aiTrainingPack.validationGuidelines) {
+    lines.push('\nAI Training Pack Guidelines:\n' + aiTrainingPack.validationGuidelines);
+  } else if (aiTrainingPack.languageGuidelines) {
+    lines.push('\nLanguage Guidelines:\n' + aiTrainingPack.languageGuidelines);
   }
 
-  if (aiTrainingPack.segmentDifferentiation) {
-    parts.push('\nSegment Differentiation:\n' + aiTrainingPack.segmentDifferentiation);
+  if (productDetails) {
+    lines.push('\nProduct Details:\n' + productDetails);
   }
 
-  parts.push(
-    '\nGenerate personalized Rich Viber messages. ' +
-    'Messages must be concise, engaging, tailored to the persona, in Greek, ' +
-    'and under 1000 characters. ' +
-    'Respond ONLY with the message text — no explanations, no labels, no quotes.'
+  lines.push(
+    `\nReference Template (previously approved communication):\n"${referenceTemplate}"`
   );
 
-  return parts.join('\n\n');
+  lines.push(
+    '\nYour task: Generate personalized Rich Viber messages in Greek, under 1000 characters. ' +
+    'Respond ONLY with the message text — no labels, no quotes, no explanations.'
+  );
+
+  return [
+    {
+      type: 'text',
+      text: lines.join('\n'),
+      cache_control: { type: 'ephemeral' },
+    },
+  ];
 }
 
-function buildCopywriterPrompt(
-  smsTemplate: string,
+/**
+ * Build the per-persona user message.
+ * Contains only what changes per persona: base profile + product-specific row + feedback.
+ * This is NOT cached (it's small and unique per persona).
+ */
+function buildPersonaUserMessage(
   persona: Persona,
-  segment: string,
-  product: string,
-  productDetails: string,
   feedbackContext: string,
   previousDraft?: string,
   critiqueImprovements?: string[]
 ): string {
-  const personaLines: string[] = [];
-  if (persona.generalDescription) personaLines.push(`Description: ${persona.generalDescription}`);
-  if (persona.needs)             personaLines.push(`Key Needs: ${persona.needs.slice(0, 500)}`);
-  if (persona.milestones)        personaLines.push(`Life Milestones: ${persona.milestones.slice(0, 300)}`);
+  const baseLines: string[] = [];
+  if (persona.generalDescription) baseLines.push(`Description: ${persona.generalDescription}`);
+  if (persona.needs)             baseLines.push(`Needs: ${persona.needs.slice(0, 300)}`);
+  if (persona.milestones)        baseLines.push(`Milestones: ${persona.milestones.slice(0, 200)}`);
+  if (persona.communication)     baseLines.push(`Communication style: ${persona.communication}`);
 
-  let prompt =
-    `Generate a personalized Rich Viber message for the following customer:
+  let msg = `PERSONA: ${persona.name}\n`;
+  if (baseLines.length) msg += baseLines.join('\n') + '\n';
 
-SEGMENT: ${segment}
-PRODUCT: ${product}
-
-PERSONA: ${persona.name}
-${personaLines.join('\n') || '(no additional details)'}
-
-PRODUCT DETAILS:
-${productDetails || '(see product sheet)'}`;
+  if (persona.productProfile) {
+    msg += `\nPRODUCT-SPECIFIC PROFILE:\n${persona.productProfile}\n`;
+  }
 
   if (feedbackContext) {
-    prompt += `\n\n${feedbackContext}`;
+    msg += `\n${feedbackContext}\n`;
   }
 
   if (previousDraft && critiqueImprovements?.length) {
-    prompt +=
-      `\n\nPREVIOUS DRAFT (needs improvement):
-"${previousDraft}"
-
-CRITIC FEEDBACK — address ALL of these points:
-${critiqueImprovements.map((c, i) => `${i + 1}. ${c}`).join('\n')}
-
-Write an improved version that addresses every point above.`;
+    msg +=
+      `\nPREVIOUS DRAFT (needs improvement):\n"${previousDraft}"\n\n` +
+      `CRITIC FEEDBACK — fix ALL of these:\n` +
+      critiqueImprovements.map((c, i) => `${i + 1}. ${c}`).join('\n') +
+      `\n\nWrite an improved version that addresses every point.`;
   } else {
-    prompt +=
-      `\n\nBASE TEMPLATE (adapt tone and content for this persona):
-"${smsTemplate}"
-
-Generate a personalized Viber message for "${persona.name}" — in Greek, under 1000 characters.`;
+    msg += `\nGenerate a personalized Viber message for "${persona.name}".`;
   }
 
-  return prompt;
+  return msg;
 }
 
 // ── Single-shot generation ───────────────────────────────────────────────────
@@ -125,16 +127,12 @@ async function generateDraft(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
-    system: buildSystemPrompt(aiTrainingPack, segment, product),
+    system: buildCachedSystemBlocks(aiTrainingPack, productDetails, smsTemplate, segment, product),
     messages: [
       {
         role: 'user',
-        content: buildCopywriterPrompt(
-          smsTemplate,
+        content: buildPersonaUserMessage(
           persona,
-          segment,
-          product,
-          productDetails,
           feedbackContext,
           previousDraft,
           critiqueImprovements
@@ -187,7 +185,6 @@ export async function generateWithCriticLoop(
       product,
       feedbackContext,
       i > 0 ? currentDraft : undefined,
-      // Pass both compliance violations AND quality improvements to refinement prompt
       i > 0
         ? [...(currentScore.complianceViolations ?? []), ...(currentScore.improvements ?? [])]
         : undefined
@@ -195,7 +192,7 @@ export async function generateWithCriticLoop(
 
     currentScore = await scoreDraft(
       currentDraft,
-      smsTemplate,       // reference template for compliance check
+      smsTemplate,
       persona,
       aiTrainingPack,
       segment,
@@ -208,7 +205,6 @@ export async function generateWithCriticLoop(
       `approval ${currentScore.approvalProbability}%`
     );
 
-    // Exit loop when BOTH thresholds are met
     if (
       currentScore.score >= SCORE_THRESHOLD &&
       currentScore.complianceScore >= COMPLIANCE_THRESHOLD
@@ -227,13 +223,12 @@ export async function refineMessage(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
-    system:
-      'You are an expert marketing copywriter. Refine the given Viber marketing message ' +
-      'based on the user feedback. Respond ONLY with the refined message text — no explanations.',
+    system: 'You are an expert marketing copywriter. Refine the given Viber marketing message ' +
+      'based on the user feedback. Respond ONLY with the refined message text.',
     messages: [
       {
         role: 'user',
-        content: `Original message:\n"${originalMessage}"\n\nFeedback: ${feedback}\n\nWrite the refined message.`,
+        content: `Original:\n"${originalMessage}"\n\nFeedback: ${feedback}\n\nWrite the refined message.`,
       },
     ],
   });
