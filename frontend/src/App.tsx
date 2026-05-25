@@ -145,8 +145,11 @@ function App() {
                   {loading ? (
                     <div className="text-center py-8">
                       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                      <p className="text-gray-600 mt-4">
+                      <p className="text-gray-600 mt-4 font-medium">
                         Generating &amp; scoring messages with AI critic…
+                      </p>
+                      <p className="text-gray-400 text-xs mt-2">
+                        This can take 1–3 minutes for multiple personas. Please keep this tab open.
                       </p>
                     </div>
                   ) : messages.length === 0 ? (

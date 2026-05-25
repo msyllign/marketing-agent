@@ -7,7 +7,7 @@ import type { GeneratedMessage } from '../types';
 
 const router = Router();
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
-const CONCURRENCY = 2; // conservative to respect API rate limits
+const CONCURRENCY = 1; // sequential — avoids rate-limit cascades and keeps requests short
 
 router.post('/', async (req, res, next) => {
   try {

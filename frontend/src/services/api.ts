@@ -22,11 +22,13 @@ export async function generateMessages(
   smsTemplateFile: string,
   personasFile: string
 ) {
-  const response = await api.post('/generate', {
-    campaignId,
-    smsTemplateFile,
-    personasFile,
-  });
+  // Agentic generation can take several minutes for many personas;
+  // set a generous 5-minute timeout so the browser doesn't give up.
+  const response = await api.post(
+    '/generate',
+    { campaignId, smsTemplateFile, personasFile },
+    { timeout: 5 * 60 * 1000 }
+  );
   return response.data;
 }
 

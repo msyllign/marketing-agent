@@ -13,8 +13,8 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
 // Agentic loop settings
-const SCORE_THRESHOLD = 7;
-const MAX_ITERATIONS = 3;
+const SCORE_THRESHOLD = 6;  // exit loop once score ≥ 6 (good enough)
+const MAX_ITERATIONS = 2;   // at most 2 attempts per persona
 
 // ── Prompt builders ──────────────────────────────────────────────────────────
 
