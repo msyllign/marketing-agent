@@ -19,35 +19,29 @@ describe('MessageCard Component', () => {
 
   const mockOnRefine = jest.fn();
   const mockOnApprove = jest.fn();
+  const mockOnUnapprove = jest.fn();
   const mockOnDiscard = jest.fn();
+
+  const defaultProps = {
+    onRefine: mockOnRefine,
+    onApprove: mockOnApprove,
+    onUnapprove: mockOnUnapprove,
+    onDiscard: mockOnDiscard,
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   test('renders message card with persona information', () => {
-    render(
-      <MessageCard
-        message={mockMessage}
-        onRefine={mockOnRefine}
-        onApprove={mockOnApprove}
-        onDiscard={mockOnDiscard}
-      />
-    );
+    render(<MessageCard message={mockMessage} {...defaultProps} />);
 
     expect(screen.getByText('John Doe')).toBeInTheDocument();
     expect(screen.getByText(mockMessage.message)).toBeInTheDocument();
   });
 
   test('calls onRefine when Refine button is clicked', () => {
-    render(
-      <MessageCard
-        message={mockMessage}
-        onRefine={mockOnRefine}
-        onApprove={mockOnApprove}
-        onDiscard={mockOnDiscard}
-      />
-    );
+    render(<MessageCard message={mockMessage} {...defaultProps} />);
 
     const refineButton = screen.getByText('✏️ Refine');
     fireEvent.click(refineButton);
@@ -56,14 +50,7 @@ describe('MessageCard Component', () => {
   });
 
   test('calls onApprove when Approve button is clicked', () => {
-    render(
-      <MessageCard
-        message={mockMessage}
-        onRefine={mockOnRefine}
-        onApprove={mockOnApprove}
-        onDiscard={mockOnDiscard}
-      />
-    );
+    render(<MessageCard message={mockMessage} {...defaultProps} />);
 
     const approveButton = screen.getByText('✓ Approve');
     fireEvent.click(approveButton);
@@ -72,14 +59,7 @@ describe('MessageCard Component', () => {
   });
 
   test('calls onDiscard when Discard button is clicked', () => {
-    render(
-      <MessageCard
-        message={mockMessage}
-        onRefine={mockOnRefine}
-        onApprove={mockOnApprove}
-        onDiscard={mockOnDiscard}
-      />
-    );
+    render(<MessageCard message={mockMessage} {...defaultProps} />);
 
     const discardButton = screen.getByText('🗑 Discard');
     fireEvent.click(discardButton);
@@ -87,19 +67,26 @@ describe('MessageCard Component', () => {
     expect(mockOnDiscard).toHaveBeenCalledWith(mockMessage);
   });
 
-  test('disables approve button when message is already approved', () => {
+  test('shows Unapprove and Refine & Re-approve buttons when message is approved', () => {
     const approvedMessage = { ...mockMessage, approved: true };
 
-    render(
-      <MessageCard
-        message={approvedMessage}
-        onRefine={mockOnRefine}
-        onApprove={mockOnApprove}
-        onDiscard={mockOnDiscard}
-      />
-    );
+    render(<MessageCard message={approvedMessage} {...defaultProps} />);
 
-    const approveButton = screen.getByText('✓ Approved');
-    expect(approveButton).toBeDisabled();
+    expect(screen.getByText('↩ Unapprove')).toBeInTheDocument();
+    expect(screen.getByText('✏️ Refine & Re-approve')).toBeInTheDocument();
+    // Discard and plain Approve should not be shown
+    expect(screen.queryByText('🗑 Discard')).not.toBeInTheDocument();
+    expect(screen.queryByText('✓ Approve')).not.toBeInTheDocument();
+  });
+
+  test('calls onUnapprove when Unapprove button is clicked', () => {
+    const approvedMessage = { ...mockMessage, approved: true };
+
+    render(<MessageCard message={approvedMessage} {...defaultProps} />);
+
+    const unapproveButton = screen.getByText('↩ Unapprove');
+    fireEvent.click(unapproveButton);
+
+    expect(mockOnUnapprove).toHaveBeenCalledWith(approvedMessage);
   });
 });

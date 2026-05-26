@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { approveMessage, exportApprovedMessages } from '../services/messageService';
+import { approveMessage, unapproveMessage, exportApprovedMessages } from '../services/messageService';
 import { appendFeedback } from '../services/feedbackStore';
 import type { CriticScore } from '../types';
 
@@ -43,6 +43,31 @@ router.post('/approve', (req, res, next) => {
     console.log(`[Feedback] Stored approval for "${personaName}" (score: ${criticScore?.score ?? 'N/A'})`);
 
     res.json({ success: true, campaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/unapprove', (req, res, next) => {
+  try {
+    const { campaignId, personaName, message } = req.body as {
+      campaignId: string;
+      personaName: string;
+      message: string;
+    };
+
+    if (!campaignId || !personaName || !message) {
+      res.status(400).json({ error: 'campaignId, personaName, and message are required' });
+      return;
+    }
+
+    const campaign = unapproveMessage(campaignId, personaName, message);
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

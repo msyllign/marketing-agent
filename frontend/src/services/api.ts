@@ -31,7 +31,7 @@ export async function startGeneration(
   segment: string,
   product: string
 ): Promise<
-  | { cached: true; messages: GeneratedMessage[]; count: number }
+  | { cached: true; campaignId: string; messages: GeneratedMessage[]; count: number; approvedCount: number }
   | { cached?: false; jobId: string; count: number }
 > {
   const response = await api.post(
@@ -82,6 +82,15 @@ export async function approveMessage(
     message,
     criticScore,
   });
+  return response.data;
+}
+
+export async function unapproveMessage(
+  campaignId: string,
+  personaName: string,
+  message: string
+) {
+  const response = await api.post('/approval/unapprove', { campaignId, personaName, message });
   return response.data;
 }
 

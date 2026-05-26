@@ -6,6 +6,7 @@ interface MessageCardProps {
   message: GeneratedMessage;
   onRefine: (message: GeneratedMessage) => void;
   onApprove: (message: string, criticScore?: CriticScore) => void;
+  onUnapprove: (message: GeneratedMessage) => void;
   onDiscard: (message: GeneratedMessage) => void;
 }
 
@@ -13,6 +14,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   message,
   onRefine,
   onApprove,
+  onUnapprove,
   onDiscard,
 }) => {
   return (
@@ -46,27 +48,45 @@ export const MessageCard: React.FC<MessageCardProps> = ({
 
       {/* Action buttons */}
       <div className="flex gap-2">
-        <button
-          onClick={() => onDiscard(message)}
-          disabled={message.approved}
-          className="flex-1 bg-gray-200 text-gray-700 py-1.5 rounded hover:bg-gray-300 disabled:opacity-40 transition-colors text-sm font-medium"
-        >
-          🗑 Discard
-        </button>
-        <button
-          onClick={() => onRefine(message)}
-          disabled={message.approved}
-          className="flex-1 bg-yellow-500 text-white py-1.5 rounded hover:bg-yellow-600 disabled:opacity-40 transition-colors text-sm font-medium"
-        >
-          ✏️ Refine
-        </button>
-        <button
-          onClick={() => onApprove(message.message, message.criticScore)}
-          disabled={message.approved}
-          className="flex-1 bg-green-600 text-white py-1.5 rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors text-sm font-medium"
-        >
-          {message.approved ? '✓ Approved' : '✓ Approve'}
-        </button>
+        {message.approved ? (
+          /* Approved state: Unapprove + Refine */
+          <>
+            <button
+              onClick={() => onUnapprove(message)}
+              className="flex-1 bg-gray-200 text-gray-600 py-1.5 rounded hover:bg-gray-300 transition-colors text-sm font-medium"
+            >
+              ↩ Unapprove
+            </button>
+            <button
+              onClick={() => onRefine(message)}
+              className="flex-2 bg-yellow-500 text-white py-1.5 rounded hover:bg-yellow-600 transition-colors text-sm font-medium px-4"
+            >
+              ✏️ Refine & Re-approve
+            </button>
+          </>
+        ) : (
+          /* Unapproved state: Discard + Refine + Approve */
+          <>
+            <button
+              onClick={() => onDiscard(message)}
+              className="flex-1 bg-gray-200 text-gray-700 py-1.5 rounded hover:bg-gray-300 transition-colors text-sm font-medium"
+            >
+              🗑 Discard
+            </button>
+            <button
+              onClick={() => onRefine(message)}
+              className="flex-1 bg-yellow-500 text-white py-1.5 rounded hover:bg-yellow-600 transition-colors text-sm font-medium"
+            >
+              ✏️ Refine
+            </button>
+            <button
+              onClick={() => onApprove(message.message, message.criticScore)}
+              className="flex-1 bg-green-600 text-white py-1.5 rounded hover:bg-green-700 transition-colors text-sm font-medium"
+            >
+              ✓ Approve
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { FileUpload } from './components/FileUpload';
 import { MessageCard } from './components/MessageCard';
 import { ChatInterface } from './components/ChatInterface';
 import axios from 'axios';
-import { startGeneration, pollJob, approveMessage, rejectMessage } from './services/api';
+import { startGeneration, pollJob, approveMessage, rejectMessage, unapproveMessage } from './services/api';
 import { GeneratedMessage, CriticScore } from './types';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -94,12 +94,18 @@ function App() {
         product
       );
 
-      // ── Cache hit: previous approved messages returned immediately ──────────
+      // ── Cache hit: restore the previous campaign ────────────────────────────
       if (result.cached) {
+        // Replace the temporary upload campaignId with the original one so that
+        // subsequent approvals and refinements write to the correct campaign file.
+        setUploadedFiles((prev) =>
+          prev ? { ...prev, campaignId: result.campaignId } : prev
+        );
         setMessages(result.messages);
         setPhase('done');
+        const { approvedCount, count } = result;
         toast.success(
-          `📋 Previous campaign found — loaded ${result.messages.length} approved message${result.messages.length !== 1 ? 's' : ''}!`,
+          `📋 Previous campaign restored — ${approvedCount} of ${count} message${count !== 1 ? 's' : ''} already approved`,
           { duration: 6_000 }
         );
         return;
@@ -139,6 +145,19 @@ function App() {
 
     try {
       await approveMessage(uploadedFiles.campaignId, msg.personaName, messageText, criticScore);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const handleUnapproveMessage = async (message: GeneratedMessage) => {
+    if (!uploadedFiles) return;
+    setMessages((prev) =>
+      prev.map((m) => (m === message ? { ...m, approved: false } : m))
+    );
+    toast('Message unapproved — you can now refine or re-approve it', { icon: '↩' });
+    try {
+      await unapproveMessage(uploadedFiles.campaignId, message.personaName, message.message);
     } catch {
       // non-blocking
     }
@@ -352,6 +371,7 @@ function App() {
                         message={msg}
                         onRefine={handleRefineMessage}
                         onApprove={handleApproveMessage}
+                        onUnapprove={handleUnapproveMessage}
                         onDiscard={handleDiscardMessage}
                       />
                     ))

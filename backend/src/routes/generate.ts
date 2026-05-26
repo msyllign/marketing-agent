@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { parseSmsTemplate, parsePersonasFile } from '../services/fileService';
 import { generateWithCriticLoop } from '../services/claudeService';
-import { saveCampaign, findMessagesByCacheKey } from '../services/messageService';
+import { saveCampaign, findByCacheKey } from '../services/messageService';
 import { createJob, addJobMessage, completeJob, failJob } from '../services/jobStore';
 import type { GeneratedMessage } from '../types';
 
@@ -74,11 +74,22 @@ router.post('/', async (req, res, next) => {
     const cacheKey = buildCacheKey(segment, product, personasPath, smsPath);
     console.log(`[Generate] Cache key: ${cacheKey}`);
 
-    // ── Check for previously approved messages ───────────────────────────────
-    const cached = findMessagesByCacheKey(cacheKey);
-    if (cached.length > 0) {
-      console.log(`[Generate] Returning ${cached.length} cached approved messages`);
-      res.json({ cached: true, messages: cached, count: cached.length });
+    // ── Check for a previous campaign with the same inputs ───────────────────
+    const hit = findByCacheKey(cacheKey);
+    if (hit) {
+      console.log(
+        `[Generate] Cache hit — returning ${hit.messages.length} messages ` +
+        `(${hit.approvedCount} approved) for campaign ${hit.campaignId}`
+      );
+      // Return the ORIGINAL campaignId so the frontend can still call
+      // approve/refine endpoints against the existing campaign file.
+      res.json({
+        cached: true,
+        campaignId: hit.campaignId,
+        messages: hit.messages,
+        count: hit.messages.length,
+        approvedCount: hit.approvedCount,
+      });
       return;
     }
 

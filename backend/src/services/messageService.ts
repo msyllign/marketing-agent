@@ -43,6 +43,24 @@ export function approveMessage(
   return campaign;
 }
 
+export function unapproveMessage(
+  campaignId: string,
+  personaName: string,
+  message: string
+): Campaign | null {
+  const campaign = loadCampaign(campaignId);
+  if (!campaign) return null;
+
+  campaign.messages = campaign.messages.map((msg) =>
+    msg.personaName === personaName && msg.message === message
+      ? { ...msg, approved: false }
+      : msg
+  );
+
+  saveCampaign(campaign);
+  return campaign;
+}
+
 export function exportApprovedMessages(campaignId: string): Campaign['messages'] {
   const campaign = loadCampaign(campaignId);
   if (!campaign) return [];
@@ -52,10 +70,17 @@ export function exportApprovedMessages(campaignId: string): Campaign['messages']
 // ── Campaign cache lookup by file-content key ─────────────────────────────────
 //
 // Scans all stored campaigns for one whose cacheKey matches.
-// Returns ALL messages (not just approved) from the most-recent matching campaign.
-// The frontend will highlight which ones are already approved.
+// Returns ALL messages (not just approved) from the most-recent matching campaign,
+// together with the campaign's original ID so the frontend can re-use it for
+// subsequent approvals and refinements.
 
-export function findMessagesByCacheKey(cacheKey: string): GeneratedMessage[] {
+export interface CacheHit {
+  campaignId: string;
+  messages: GeneratedMessage[];     // all personas, with their stored approved state
+  approvedCount: number;
+}
+
+export function findByCacheKey(cacheKey: string): CacheHit | null {
   ensureDir();
   let best: Campaign | null = null;
 
@@ -76,12 +101,13 @@ export function findMessagesByCacheKey(cacheKey: string): GeneratedMessage[] {
     // directory unreadable
   }
 
-  if (!best) return [];
+  if (!best) return null;
 
-  const approved = best.messages.filter((m) => m.approved);
+  const approvedCount = best.messages.filter((m) => m.approved).length;
   console.log(
     `[MessageService] Cache hit for key "${cacheKey}": ` +
-    `${approved.length}/${best.messages.length} approved messages from campaign ${best.id}`
+    `${approvedCount}/${best.messages.length} approved — campaign ${best.id}`
   );
-  return approved;
+
+  return { campaignId: best.id, messages: best.messages, approvedCount };
 }
